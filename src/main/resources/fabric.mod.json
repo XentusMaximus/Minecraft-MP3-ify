@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "mp3player",
+	"version": "${version}",
+	"name": "MP3-Player",
+	"description": "Tragbarer Ingame-MP3-Player mit modernem GUI, Kopfhörer-Modus (Stereo) und Essential-kompatiblem 3D-Raumklang.",
+	"authors": [
+		"IceKaffee"
+	],
+	"license": "MIT",
+	"icon": "assets/mp3player/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"de.vibecoded.mp3player.Mp3PlayerMod"
+		],
+		"client": [
+			"de.vibecoded.mp3player.client.Mp3PlayerClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

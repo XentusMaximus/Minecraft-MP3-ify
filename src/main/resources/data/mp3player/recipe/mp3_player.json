@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "G": "minecraft:glass_pane",
+    "N": "minecraft:note_block",
+    "R": "minecraft:redstone"
+  },
+  "pattern": [
+    "IGI",
+    "INI",
+    "IRI"
+  ],
+  "result": {
+    "id": "mp3player:mp3_player"
+  }
+}
+

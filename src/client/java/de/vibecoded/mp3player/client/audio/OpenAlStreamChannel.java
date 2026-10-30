@@ -61,6 +61,12 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 		}
 	}
 
+	public void updateGainNow(float effectiveGain) {
+		if (!closed && sourceId != 0 && ALC10.alcGetCurrentContext() != 0L) {
+			AL10.alSourcef(sourceId, AL10.AL_GAIN, Math.max(0.0f, Math.min(1.0f, effectiveGain)));
+		}
+	}
+
 	public boolean pump(Queue<PcmChunk> pcmQueue, boolean paused, float effectiveGain, int minPrebufferChunks) {
 		return pump(pcmQueue, paused, effectiveGain, minPrebufferChunks, null);
 	}

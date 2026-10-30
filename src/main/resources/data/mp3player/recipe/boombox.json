@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "R": "minecraft:redstone",
+    "N": "minecraft:note_block",
+    "G": "minecraft:gold_ingot",
+    "P": "#minecraft:planks"
+  },
+  "pattern": [
+    "IRI",
+    "NGN",
+    "PPP"
+  ],
+  "result": {
+    "id": "mp3player:boombox",
+    "count": 1
+  }
+}
+

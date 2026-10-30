@@ -1,0 +1,8 @@
+{
+  "parent": "mp3player:block/boombox",
+  "textures": {
+    "particle": "mp3player:block/boombox_front_on",
+    "front": "mp3player:block/boombox_front_on"
+  }
+}
+

@@ -3,6 +3,7 @@ package de.vibecoded.mp3player.client.gui;
 import de.vibecoded.mp3player.Mp3PlayerMod;
 import de.vibecoded.mp3player.client.audio.Mp3AudioController;
 import de.vibecoded.mp3player.client.audio.RemoteSpeakerManager;
+import de.vibecoded.mp3player.client.audio.RemoteSpeakerManager.RemoteStream;
 import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
@@ -19,9 +20,12 @@ import net.minecraft.client.gui.components.Tooltip;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.util.Util;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import org.lwjgl.glfw.GLFW;
 
 public class Mp3PlayerScreen extends Screen {
@@ -30,7 +34,9 @@ public class Mp3PlayerScreen extends Screen {
 	private final Mp3AudioController controller;
 	private final RemoteSpeakerManager remoteSpeakers;
 	private final KeyMapping toggleKey;
-	private final ItemStack iconStack = new ItemStack(Mp3PlayerMod.MP3_PLAYER_ITEM);
+	private final ResourceKey<Level> targetBoomboxDimension;
+	private final BlockPos targetBoomboxPos;
+	private final ItemStack iconStack;
 
 	private int panelX;
 	private int panelY;
@@ -63,10 +69,27 @@ public class Mp3PlayerScreen extends Screen {
 	private long toastExpireTimeMs = 0L;
 
 	public Mp3PlayerScreen(Mp3AudioController controller, RemoteSpeakerManager remoteSpeakers, KeyMapping toggleKey) {
-		super(Component.translatable("screen.mp3player.title"));
+		this(controller, remoteSpeakers, toggleKey, null, null);
+	}
+
+	public Mp3PlayerScreen(
+			Mp3AudioController controller,
+			RemoteSpeakerManager remoteSpeakers,
+			KeyMapping toggleKey,
+			ResourceKey<Level> targetBoomboxDimension,
+			BlockPos targetBoomboxPos
+	) {
+		super(Component.translatable(targetBoomboxPos != null ? "block.mp3player.boombox" : "screen.mp3player.title"));
 		this.controller = controller;
 		this.remoteSpeakers = remoteSpeakers;
 		this.toggleKey = toggleKey;
+		this.targetBoomboxDimension = targetBoomboxDimension;
+		this.targetBoomboxPos = targetBoomboxPos != null ? targetBoomboxPos.immutable() : null;
+		this.iconStack = new ItemStack(targetBoomboxPos != null ? Mp3PlayerMod.BOOMBOX_ITEM : Mp3PlayerMod.MP3_PLAYER_ITEM);
+	}
+
+	private boolean isBoomboxScreen() {
+		return targetBoomboxPos != null && targetBoomboxDimension != null;
 	}
 
 	@Override
@@ -88,11 +111,11 @@ public class Mp3PlayerScreen extends Screen {
 
 		updateFilteredList();
 
-		// 1. Header Mode Toggle Button (Headphones vs 3D Speaker)
+		// 1. Header Mode Toggle Button (Headphones vs 3D Speaker vs Placed Boombox)
 		this.modeBtn = Button.builder(buildModeLabel(), btn -> {
-			controller.setSpeaker3dMode(!controller.config().speaker3dMode());
+			handleModeButtonClick();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 134, panelY + 5, 126, 18).build();
+		}).bounds(panelX + panelW - 148, panelY + 5, 140, 18).build();
 		this.addRenderableWidget(this.modeBtn);
 
 		// 2. Search Bar + Folder & Refresh Buttons
@@ -143,13 +166,17 @@ public class Mp3PlayerScreen extends Screen {
 		this.addRenderableWidget(this.shuffleBtn);
 		cx += 27;
 
-		Button prevBtn = Button.builder(Component.literal("⏮"), btn -> controller.previousTrack())
-				.bounds(cx, controlsY, 24, 18).build();
+		Button prevBtn = Button.builder(Component.literal("⏮"), btn -> {
+			if (isBoomboxScreen() && !controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+				controller.activateBoomboxTarget(targetBoomboxDimension, targetBoomboxPos);
+			}
+			controller.previousTrack();
+		}).bounds(cx, controlsY, 24, 18).build();
 		this.addRenderableWidget(prevBtn);
 		cx += 27;
 
 		this.playPauseBtn = Button.builder(buildPlayPauseLabel(), btn -> {
-			controller.togglePlayPause();
+			handlePlayPauseAction();
 			refreshButtonLabels();
 		}).bounds(cx, controlsY, 32, 18).build();
 		this.addRenderableWidget(this.playPauseBtn);
@@ -162,8 +189,12 @@ public class Mp3PlayerScreen extends Screen {
 		this.addRenderableWidget(stopBtn);
 		cx += 27;
 
-		Button nextBtn = Button.builder(Component.literal("⏭"), btn -> controller.nextTrack())
-				.bounds(cx, controlsY, 24, 18).build();
+		Button nextBtn = Button.builder(Component.literal("⏭"), btn -> {
+			if (isBoomboxScreen() && !controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+				controller.activateBoomboxTarget(targetBoomboxDimension, targetBoomboxPos);
+			}
+			controller.nextTrack();
+		}).bounds(cx, controlsY, 24, 18).build();
 		this.addRenderableWidget(nextBtn);
 		cx += 27;
 
@@ -192,6 +223,30 @@ public class Mp3PlayerScreen extends Screen {
 		refreshButtonLabels();
 	}
 
+	private void handleModeButtonClick() {
+		if (isBoomboxScreen()) {
+			if (controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+				controller.deactivateBoomboxTarget();
+			} else {
+				controller.activateBoomboxTarget(targetBoomboxDimension, targetBoomboxPos);
+			}
+			return;
+		}
+		if (controller.isBoomboxActive()) {
+			controller.deactivateBoomboxTarget();
+			return;
+		}
+		controller.setSpeaker3dMode(!controller.config().speaker3dMode());
+	}
+
+	private void handlePlayPauseAction() {
+		if (isBoomboxScreen()) {
+			controller.togglePlayPauseOnBoombox(targetBoomboxDimension, targetBoomboxPos);
+		} else {
+			controller.togglePlayPause();
+		}
+	}
+
 	private void updateFilteredList() {
 		this.filteredTracks = controller.library().filter(this.searchQuery);
 		clampScroll();
@@ -200,12 +255,7 @@ public class Mp3PlayerScreen extends Screen {
 	private void refreshButtonLabels() {
 		if (modeBtn != null) {
 			modeBtn.setMessage(buildModeLabel());
-			if (controller.config().speaker3dMode() && !controller.isServerSupporting3D()) {
-				modeBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.server_local_only")
-						.withStyle(ChatFormatting.YELLOW)));
-			} else {
-				modeBtn.setTooltip(null);
-			}
+			modeBtn.setTooltip(buildModeTooltip());
 		}
 		if (shuffleBtn != null) {
 			shuffleBtn.setMessage(buildShuffleLabel());
@@ -228,12 +278,46 @@ public class Mp3PlayerScreen extends Screen {
 	}
 
 	private Component buildModeLabel() {
+		if (isBoomboxScreen()) {
+			if (controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+				return Component.literal("📻 " + formatPosShort(targetBoomboxPos)).withStyle(ChatFormatting.GREEN);
+			}
+			return Component.literal("📻 ").withStyle(ChatFormatting.GOLD)
+					.append(Component.translatable("screen.mp3player.mode.boombox_here").withStyle(ChatFormatting.GOLD));
+		}
+		if (controller.isBoomboxActive()) {
+			return Component.literal("📻 " + formatPosShort(controller.activeBoomboxPos())).withStyle(ChatFormatting.GREEN);
+		}
 		if (controller.config().speaker3dMode()) {
 			return Component.literal("🔊 ").withStyle(ChatFormatting.GREEN)
 					.append(Component.translatable("screen.mp3player.mode.speaker3d").withStyle(ChatFormatting.GREEN));
 		}
 		return Component.literal("🎧 ").withStyle(ChatFormatting.AQUA)
 				.append(Component.translatable("screen.mp3player.mode.headphones").withStyle(ChatFormatting.AQUA));
+	}
+
+	private Tooltip buildModeTooltip() {
+		if (isBoomboxScreen()) {
+			if (controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+				return Tooltip.create(Component.translatable("screen.mp3player.tooltip.boombox_active", formatPosShort(targetBoomboxPos)));
+			}
+			return Tooltip.create(Component.translatable("screen.mp3player.tooltip.boombox_transfer", formatPosShort(targetBoomboxPos)));
+		}
+		if (controller.isBoomboxActive()) {
+			return Tooltip.create(Component.translatable("screen.mp3player.tooltip.boombox_active", formatPosShort(controller.activeBoomboxPos())));
+		}
+		if (controller.config().speaker3dMode() && !controller.isServerSupporting3D()) {
+			return Tooltip.create(Component.translatable("screen.mp3player.server_local_only")
+					.withStyle(ChatFormatting.YELLOW));
+		}
+		return null;
+	}
+
+	private static String formatPosShort(BlockPos pos) {
+		if (pos == null) {
+			return "";
+		}
+		return pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
 	}
 
 	private Component buildShuffleLabel() {
@@ -243,8 +327,10 @@ public class Mp3PlayerScreen extends Screen {
 	}
 
 	private Component buildPlayPauseLabel() {
-		return Component.literal(controller.isPlaying() ? "⏸" : "▶")
-				.withStyle(controller.isPlaying() ? ChatFormatting.AQUA : ChatFormatting.WHITE);
+		boolean activeHere = !isBoomboxScreen() || controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos);
+		boolean playingHere = activeHere && controller.isPlaying();
+		return Component.literal(playingHere ? "⏸" : "▶")
+				.withStyle(playingHere ? ChatFormatting.AQUA : ChatFormatting.WHITE);
 	}
 
 	private Component buildLoopLabel() {
@@ -264,24 +350,37 @@ public class Mp3PlayerScreen extends Screen {
 	@Override
 	public void tick() {
 		super.tick();
+		if (isBoomboxScreen() && this.minecraft != null && this.minecraft.level != null) {
+			if (!this.minecraft.level.dimension().equals(targetBoomboxDimension)
+					|| (this.minecraft.level.isLoaded(targetBoomboxPos)
+					&& !this.minecraft.level.getBlockState(targetBoomboxPos).is(Mp3PlayerMod.BOOMBOX_BLOCK))
+					|| (this.minecraft.player != null
+					&& targetBoomboxPos.distToCenterSqr(this.minecraft.player.position()) > 16.0 * 16.0)) {
+				this.onClose();
+				return;
+			}
+		}
 		refreshButtonLabels();
 	}
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
+		boolean boomboxUi = isBoomboxScreen();
+
 		// 1. Main Hi-Fi Window Card + Drop Shadow + Border
 		graphics.fill(panelX + 3, panelY + 3, panelX + panelW + 3, panelY + panelH + 3, 0x66000000);
 		graphics.fillGradient(panelX, panelY, panelX + panelW, panelY + panelH, 0xF2111827, 0xF50B1120);
-		graphics.outline(panelX, panelY, panelW, panelH, 0xFF334155);
+		graphics.outline(panelX, panelY, panelW, panelH, boomboxUi ? 0xFF10B981 : 0xFF334155);
 
 		// Header separator & subtle gradient bar
-		graphics.fillGradient(panelX + 1, panelY + 1, panelX + panelW - 1, panelY + 27, 0x881E293B, 0x220F172A);
-		graphics.horizontalLine(panelX + 1, panelX + panelW - 2, panelY + 27, 0xFF1E293B);
+		int headerTopGrad = boomboxUi ? 0x88064E3B : 0x881E293B;
+		graphics.fillGradient(panelX + 1, panelY + 1, panelX + panelW - 1, panelY + 27, headerTopGrad, 0x220F172A);
+		graphics.horizontalLine(panelX + 1, panelX + panelW - 2, panelY + 27, boomboxUi ? 0xFF065F46 : 0xFF1E293B);
 
 		// Header Icon + Title + Track Count
 		graphics.fakeItem(iconStack, panelX + 7, panelY + 5);
-		String titleStr = Component.translatable("screen.mp3player.title").getString();
-		graphics.text(this.font, titleStr, panelX + 27, panelY + 10, 0xFFF8FAFC, true);
+		String titleStr = Component.translatable(boomboxUi ? "block.mp3player.boombox" : "screen.mp3player.title").getString();
+		graphics.text(this.font, titleStr, panelX + 27, panelY + 10, boomboxUi ? 0xFFA7F3D0 : 0xFFF8FAFC, true);
 		String countBadge = "(" + controller.library().tracks().size() + ")";
 		graphics.text(this.font, countBadge, panelX + 27 + this.font.width(titleStr) + 5, panelY + 10, 0xFF64748B, false);
 
@@ -448,14 +547,17 @@ public class Mp3PlayerScreen extends Screen {
 	private void renderNowPlayingAndSeekBar(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
 		Mp3TrackInfo current = controller.currentTrack();
 
-		// Status badge on right (remote 3D streams count or local fallback info)
+		// Status badge on right (Boombox status, remote 3D streams count, or local fallback info)
 		String rightStatus = null;
 		int rightColor = 0xFF64748B;
 		int remoteCount = remoteSpeakers.activeCount();
-		if (remoteCount > 0) {
+		if (controller.isBoomboxActive()) {
+			rightStatus = "📻 3D";
+			rightColor = 0xFF34D399;
+		} else if (remoteCount > 0) {
 			rightStatus = "🔊 " + remoteCount + " 3D";
 			rightColor = controller.config().muteOthers() ? 0xFFF87171 : 0xFF34D399;
-		} else if (controller.config().speaker3dMode() && !controller.isServerSupporting3D()) {
+		} else if ((controller.config().speaker3dMode() || isBoomboxScreen()) && !controller.isServerSupporting3D()) {
 			rightStatus = Component.translatable("screen.mp3player.server_local_only").getString();
 			rightColor = 0xFFFBBF24;
 		}
@@ -466,9 +568,14 @@ public class Mp3PlayerScreen extends Screen {
 			graphics.text(this.font, rightStatus, panelX + panelW - 8 - this.font.width(rightStatus), deckTop + 5, rightColor, false);
 		}
 
-		// Now-Playing Song Label on left
+		// Now-Playing Song Label on left (or show another player's track if they are streaming on this Boombox!)
 		int maxNowPlayingW = panelW - 16 - rightStatusW;
-		if (current != null) {
+		RemoteStream remoteOnBox = isBoomboxScreen() ? remoteSpeakers.findStreamAtBoombox(targetBoomboxPos) : null;
+		if (remoteOnBox != null && !controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+			String remotePrefix = remoteOnBox.paused() ? "⏸ 📻 " : "♪ 📻 ";
+			String label = clipText(remotePrefix + remoteOnBox.speakerName() + " – " + remoteOnBox.trackTitle(), maxNowPlayingW);
+			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF34D399, true);
+		} else if (current != null) {
 			String prefix = controller.isPlaying() ? "♪ " : "⏸ ";
 			String label = clipText(prefix + current.fullDisplayLabel(), maxNowPlayingW);
 			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF7DD3FC, true);
@@ -540,12 +647,16 @@ public class Mp3PlayerScreen extends Screen {
 			return true;
 		}
 
-		// 3. Track row click -> Play track!
+		// 3. Track row click -> Play track (directly on Boombox if opened from a placed Boombox)!
 		if (mx >= listLeft + 1 && mx < listRight - 5 && my >= innerTop && my < innerBottom) {
 			int idx = (int) Math.floor((my - innerTop + scrollOffset) / ROW_HEIGHT);
 			if (idx >= 0 && idx < filteredTracks.size()) {
 				Mp3TrackInfo clicked = filteredTracks.get(idx);
-				controller.playTrack(clicked);
+				if (isBoomboxScreen()) {
+					controller.playTrackOnBoombox(clicked, targetBoomboxDimension, targetBoomboxPos);
+				} else {
+					controller.playTrack(clicked);
+				}
 				refreshButtonLabels();
 				return true;
 			}
@@ -602,7 +713,7 @@ public class Mp3PlayerScreen extends Screen {
 		}
 
 		if (event.key() == GLFW.GLFW_KEY_SPACE) {
-			controller.togglePlayPause();
+			handlePlayPauseAction();
 			refreshButtonLabels();
 			return true;
 		}
@@ -722,4 +833,3 @@ public class Mp3PlayerScreen extends Screen {
 		}
 	}
 }
-

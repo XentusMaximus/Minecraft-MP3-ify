@@ -15,18 +15,22 @@ import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.Connection;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.level.Level;
 
 /**
  * Controls local multi-format audio playback (MP3, M4A, OPUS, WAV, FLAC, OGG),
- * playlist navigation (Shuffle / Loop / Seek), and synchronized 48 kHz Opus 3D spatial
- * network streaming (Essential & Multiplayer safe).
+ * placed Boombox 3D world-positioned playback, playlist navigation (Shuffle / Loop / Seek),
+ * and synchronized 48 kHz Opus 3D spatial network streaming (Essential & Multiplayer safe).
  */
 public final class Mp3AudioController {
 	private static final int MAX_CHUNKS_PER_TICK = 5;
@@ -41,6 +45,10 @@ public final class Mp3AudioController {
 	private OpenAlStreamChannel alChannel;
 	private boolean paused = false;
 	private double seekBaseSeconds = 0.0;
+
+	// Placed Boombox target (when non-null, BOTH local OpenAL and network stream emanate in 3D from this BlockPos)
+	private BlockPos activeBoomboxPos;
+	private ResourceKey<Level> activeBoomboxDimension;
 
 	// Outgoing 3D Opus network stream state
 	private UUID activeStreamId;
@@ -76,6 +84,25 @@ public final class Mp3AudioController {
 
 	public boolean hasActiveTrack() {
 		return currentTrack != null && alChannel != null;
+	}
+
+	public boolean isBoomboxActive() {
+		return activeBoomboxPos != null && activeBoomboxDimension != null;
+	}
+
+	public BlockPos activeBoomboxPos() {
+		return activeBoomboxPos;
+	}
+
+	public ResourceKey<Level> activeBoomboxDimension() {
+		return activeBoomboxDimension;
+	}
+
+	public boolean isTargetingBoombox(ResourceKey<Level> dimension, BlockPos pos) {
+		return pos != null
+				&& dimension != null
+				&& pos.equals(activeBoomboxPos)
+				&& dimension.equals(activeBoomboxDimension);
 	}
 
 	public boolean isServerSupporting3D() {
@@ -114,6 +141,84 @@ public final class Mp3AudioController {
 		playTrackInternal(track, 0.0, true);
 	}
 
+	public void playTrackOnBoombox(Mp3TrackInfo track, ResourceKey<Level> dimension, BlockPos pos) {
+		if (dimension != null && pos != null) {
+			this.activeBoomboxPos = pos.immutable();
+			this.activeBoomboxDimension = dimension;
+		}
+		playTrackInternal(track, 0.0, true);
+	}
+
+	/**
+	 * Routes playback to the placed Boombox at (dimension, pos).
+	 * If a track is already playing or paused (e.g. on Headphones), seamlessly transfers it
+	 * at its exact current timestamp to the Boombox in 3D!
+	 */
+	public void activateBoomboxTarget(ResourceKey<Level> dimension, BlockPos pos) {
+		if (dimension == null || pos == null) {
+			return;
+		}
+		if (isTargetingBoombox(dimension, pos)) {
+			if (!hasActiveTrack()) {
+				togglePlayPause();
+			}
+			return;
+		}
+		this.activeBoomboxPos = pos.immutable();
+		this.activeBoomboxDimension = dimension;
+
+		if (currentTrack != null && alChannel != null) {
+			boolean wasPaused = this.paused;
+			double ratio = progressRatio();
+			playTrackInternal(currentTrack, ratio, false);
+			if (wasPaused) {
+				setPaused(true);
+			}
+		}
+	}
+
+	/**
+	 * Detaches playback from any placed Boombox and returns to Handheld mode
+	 * (Headphones stereo or Handheld 3D Speaker).
+	 */
+	public void deactivateBoomboxTarget() {
+		if (!isBoomboxActive()) {
+			return;
+		}
+		this.activeBoomboxPos = null;
+		this.activeBoomboxDimension = null;
+
+		if (currentTrack != null && alChannel != null) {
+			boolean wasPaused = this.paused;
+			double ratio = progressRatio();
+			playTrackInternal(currentTrack, ratio, false);
+			if (wasPaused) {
+				setPaused(true);
+			}
+		}
+	}
+
+	public void togglePlayPauseOnBoombox(ResourceKey<Level> dimension, BlockPos pos) {
+		if (dimension == null || pos == null) {
+			togglePlayPause();
+			return;
+		}
+		if (isTargetingBoombox(dimension, pos) && hasActiveTrack()) {
+			setPaused(!paused);
+			return;
+		}
+		if (hasActiveTrack()) {
+			activateBoomboxTarget(dimension, pos);
+			if (paused) {
+				setPaused(false);
+			}
+			return;
+		}
+		this.activeBoomboxPos = pos.immutable();
+		this.activeBoomboxDimension = dimension;
+		togglePlayPause();
+	}
+
 	private void playTrackInternal(Mp3TrackInfo track, double ratio, boolean recordHistory) {
 		if (track == null) {
 			return;
@@ -135,12 +240,20 @@ public final class Mp3AudioController {
 			this.paused = false;
 			this.seekBaseSeconds = track.durationSeconds() * clampedRatio;
 
-			if (config.speaker3dMode() && isServerSupporting3D()) {
+			boolean boomboxMode = isBoomboxActive();
+			if ((boomboxMode || config.speaker3dMode()) && isServerSupporting3D()) {
 				startOutgoing3dStream(track);
 			}
 
 			this.decodeWorker = new Mp3DecodeWorker("Local-" + track.formatBadge(), trackDecoder, false);
-			this.alChannel = new OpenAlStreamChannel(false);
+			this.alChannel = new OpenAlStreamChannel(boomboxMode);
+			if (boomboxMode) {
+				this.alChannel.setWorldPosition(
+						activeBoomboxPos.getX() + 0.5,
+						activeBoomboxPos.getY() + 0.5,
+						activeBoomboxPos.getZ() + 0.5
+				);
+			}
 			this.decodeWorker.start();
 		} catch (IOException e) {
 			Mp3PlayerMod.LOGGER.error("Failed to play audio track {} ({})", track.file(), track.formatBadge(), e);
@@ -178,6 +291,25 @@ public final class Mp3AudioController {
 		currentTrack = null;
 		paused = false;
 		seekBaseSeconds = 0.0;
+		activeBoomboxPos = null;
+		activeBoomboxDimension = null;
+	}
+
+	/**
+	 * Invoked when the server terminates our active stream (e.g. placed Boombox was broken
+	 * or another player took over that Boombox).
+	 */
+	public boolean onServerStoppedStream(UUID stoppedStreamId) {
+		if (activeStreamId == null || !activeStreamId.equals(stoppedStreamId)) {
+			return false;
+		}
+		stopLocalAndNetwork(false);
+		currentTrack = null;
+		paused = false;
+		seekBaseSeconds = 0.0;
+		activeBoomboxPos = null;
+		activeBoomboxDimension = null;
+		return true;
 	}
 
 	public void seek(double ratio) {
@@ -234,6 +366,12 @@ public final class Mp3AudioController {
 	}
 
 	public void setSpeaker3dMode(boolean enabled) {
+		if (isBoomboxActive()) {
+			config.setSpeaker3dMode(enabled);
+			config.save();
+			deactivateBoomboxTarget();
+			return;
+		}
 		if (config.speaker3dMode() == enabled) {
 			return;
 		}
@@ -253,10 +391,29 @@ public final class Mp3AudioController {
 
 	public void setVolume(float newVolume) {
 		config.setVolume(newVolume);
+		refreshImmediateGain(Minecraft.getInstance());
 		if (activeStreamId != null && volumeSyncCooldown <= 0) {
 			sendNetworkStateNow();
 			volumeSyncCooldown = 3;
 		}
+	}
+
+	public void refreshImmediateGain(Minecraft client) {
+		if (alChannel != null && client != null) {
+			alChannel.updateGainNow(computeEffectiveGain(client));
+		}
+	}
+
+	private float computeEffectiveGain(Minecraft client) {
+		if (client == null || client.options == null) {
+			return 0.0f;
+		}
+		if (isBoomboxActive() && (client.level == null || !client.level.dimension().equals(activeBoomboxDimension))) {
+			return 0.0f;
+		}
+		float masterVol = client.options.getSoundSourceVolume(SoundSource.MASTER);
+		float optionsVol = config.optionsVolume();
+		return config.volume() * optionsVol * masterVol;
 	}
 
 	public static boolean hasActiveWorldConnection(Minecraft client) {
@@ -280,6 +437,15 @@ public final class Mp3AudioController {
 			return;
 		}
 
+		// Immediately stop Boombox playback if the placed Boombox block was broken locally
+		if (isBoomboxActive()
+				&& client.level.dimension().equals(activeBoomboxDimension)
+				&& client.level.isLoaded(activeBoomboxPos)
+				&& !client.level.getBlockState(activeBoomboxPos).is(Mp3PlayerMod.BOOMBOX_BLOCK)) {
+			stop();
+			return;
+		}
+
 		if (volumeSyncCooldown > 0) {
 			volumeSyncCooldown--;
 		}
@@ -290,8 +456,14 @@ public final class Mp3AudioController {
 		// 1. Pump local OpenAL playback (tapping queued PCM chunks into 3D Opus broadcaster when active)
 		boolean finished = false;
 		if (alChannel != null && decodeWorker != null) {
-			float masterVol = client.options.getSoundSourceVolume(SoundSource.MASTER);
-			float effectiveGain = config.volume() * masterVol;
+			if (isBoomboxActive()) {
+				alChannel.setWorldPosition(
+						activeBoomboxPos.getX() + 0.5,
+						activeBoomboxPos.getY() + 0.5,
+						activeBoomboxPos.getZ() + 0.5
+				);
+			}
+			float effectiveGain = computeEffectiveGain(client);
 			finished = alChannel.pump(
 					decodeWorker.outputQueue(),
 					paused,
@@ -339,6 +511,8 @@ public final class Mp3AudioController {
 		currentTrack = null;
 		paused = false;
 		seekBaseSeconds = 0.0;
+		activeBoomboxPos = null;
+		activeBoomboxDimension = null;
 		history.clear();
 	}
 
@@ -349,6 +523,8 @@ public final class Mp3AudioController {
 		List<Mp3TrackInfo> tracks = library.tracks();
 		if (finishedTrack == null || tracks.isEmpty()) {
 			currentTrack = null;
+			activeBoomboxPos = null;
+			activeBoomboxDimension = null;
 			return;
 		}
 
@@ -371,6 +547,8 @@ public final class Mp3AudioController {
 			currentTrack = null;
 			paused = false;
 			seekBaseSeconds = 0.0;
+			activeBoomboxPos = null;
+			activeBoomboxDimension = null;
 		}
 	}
 
@@ -384,7 +562,8 @@ public final class Mp3AudioController {
 		ClientPlayNetworking.send(new C2SStreamStart(
 				activeStreamId,
 				track.fullDisplayLabel(),
-				config.volume()
+				config.volume(),
+				Optional.ofNullable(activeBoomboxPos)
 		));
 	}
 

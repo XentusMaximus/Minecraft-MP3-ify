@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "mp3player:boombox"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "mp3player:blocks/boombox"
+}
+

@@ -1,6 +1,6 @@
-# 🎧 MP3-Player (`Minecraft 26.2` · Fabric · `v1.1.0`)
+# 🎧 MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.2.0`)
 
-![Version 1.1.0](https://img.shields.io/badge/Version-1.1.0-a855f7?style=flat-square)
+![Version 1.2.0](https://img.shields.io/badge/Version-1.2.0-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -8,32 +8,32 @@
 
 [🇺🇸 English](README.md) | **🇩🇪 Deutsch** | [📋 Changelog](CHANGELOG.md)
 
-Ein moderner, tragbarer **Ingame-Multiformat-Musikplayer** für **Minecraft 26.2 (Fabric)** — spiele deine eigenen lokalen **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`** und **`.ogg`** Dateien über ein craftbares Survival-Item ab, wahlweise privat im **Stereo-Kopfhörer-Modus** oder für alle Mitspieler hörbar im **Essential-kompatiblen 3D-Lautsprecher-Modus**.
+Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für **Minecraft 26.2 (Fabric)** — spiele deine eigenen lokalen **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`** und **`.ogg`** Dateien über den tragbaren **MP3-Player** ab oder stelle eine **Boombox** in die Welt, die echten 3D-Raumklang von ihrer Block-Position aus abstrahlt — inklusive eigenem Lautstärke-Regler direkt in den **Minecraft-Musik-&-Geräusche-Optionen**!
 
 ---
 
 ## ✨ Features
 
-- **6 native Audioformate direkt unterstützt (`v1.1.0+`):**
+- **Platzierbare 3D-Boombox (`mp3player:boombox`, Neu in `v1.2.0`):**
+  - Stelle die 3D-Stereo-Boombox beliebig in deiner Welt auf — die Musik erklingt in **echtem 3D-Richtungsklang exakt von der Position der Boombox** (in 3D hörbar **sowohl für dich selbst als auch für alle Mitspieler** im Umkreis von 56 Blöcken!).
+  - Leuchtet während der Wiedergabe mit aktivem LED-Equalizer-Display und Musiknoten-Partikeln; stoppt sofort, wenn der Block abgebaut wird.
+  - Laufende Songs lassen sich mitten im Track nahtlos zwischen **🎧 Kopfhörer** und einer platzierten **📻 Boombox** übergeben!
+- **Eigener Lautstärke-Slider in den Minecraft-Optionen (Neu in `v1.2.0`):**
+  - Nativer **`MP3 & Boombox`**-Regler (`AUS` – `100 %`) direkt unter **Optionen → Musik & Geräusche...** (**0 Mixins**), mit dem du die Musiklautstärke unabhängig von der Gesamtlautstärke (*Master Volume*) regeln oder stummschalten kannst.
+- **6 native Audioformate direkt unterstützt:**
   - **`.mp3`** — MPEG-1/2/2.5 Layer I/II/III (`ID3v1` & `ID3v2` Tags, CBR- & Xing/VBRI-VBR-Laufzeit)
   - **`.m4a`** — MP4 / AAC-LC / HE-AAC (`iTunes`-Metadaten & blitzschnelles MP4-Sample-Seeking)
   - **`.opus`** — Ogg Opus (`OpusTags` Vorbis-Comments, Pre-Skip & Q7.8 Output-Gain, O(1)-Seeking)
   - **`.wav`** — 8/16/24/32-Bit Linear PCM & 32/64-Bit IEEE Float (`LIST`/`INFO`-Tags & samplegenaues Seeking)
   - **`.flac`** — Lossless 8–32 Bit FLAC (`VorbisComment`-Metadaten & `SeekTable`-/Frame-Sync-Seeking)
   - **`.ogg`** — Ogg Vorbis & Ogg Opus (`VorbisComment`-Metadaten & O(1)-Seeking)
-- **Craftbares Survival-Item** mit eigenem Pixel-Art-Icon & Creative-Tab-Integration (*Werkzeuge & Hilfsmittel*).
-- **Zwei live umschaltbare Audio-Modi** (auch mitten im laufenden Song bei allen 6 Formaten ohne Unterbrechung):
+- **Drei live umschaltbare Audio-Ausgabemodi:**
   - 🎧 **Kopfhörer (Lokal):** Voller Stereo-Sound in nativer Sample-Rate nur für dich selbst (`0` Netzwerk-Traffic, funktioniert auch auf Vanilla-/Fremdservern).
-  - 🔊 **3D-Lautsprecher (Multiplayer & Essential):** Echter OpenAL-3D-Richtungsklang mit Distanz-Dämpfung (bis 56 Blöcke) und Musiknoten-Partikeln über deinem Charakter.
+  - 🔊 **Tragbarer 3D-Lautsprecher (Multiplayer & Essential):** 3D-Richtungsklang, der deinem Charakter beim Laufen folgt.
+  - 📻 **Platzierte Boombox (Stationärer 3D-Block):** 3D-Richtungsklang fest verankert an der platzierten Boombox in der Welt.
 - **100 % Essential-Mod-kompatibel (48 kHz Opus-3D-Streaming):** Codiert jedes der 6 Quellformate live in kompakte `48 kHz` Opus-Pakete (`~8 KB/s`, `<= 4 KB` pro Paket) über Minecrafts Standard-Play-Kanal — **keine externen UDP-Ports** nötig, **keine Paketgrößen-Kicks**, **sofortiges Mit-Hören mitten im Song** und **0 Mixins** (keine Konflikte mit Essential, Sodium, Iris & Co.).
 - **Modernes Hi-Fi Ingame-GUI:**
-  - Live-Suche nach Titel, Künstler, Dateiname oder **Audioformat** (`FLAC`, `OPUS`, `M4A`, `WAV`, `OGG`, `MP3`)
-  - Farbige Format-Badges & automatische Metadaten-/Laufzeiterkennung für alle 6 Formate
-  - Musik-reaktiver Echtzeit-Equalizer
-  - Anklick- & ziehbarer Fortschrittsbalken (**Seeking** funktioniert bei allen 6 Formaten und synchronisiert sich live mit allen 3D-Zuhörern)
-  - **Shuffle**, **Loop** (`Aus` / `Alle` / `1x`), **Lautstärke-Slider** & Stummschalt-Option für fremde 3D-Streams
-  - **Drag & Drop Import:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) direkt aus Windows auf das geöffnete Minecraft-Fenster!
-- **All-in-One Pure-Java JAR:** Alle Decoder (`JLayer`, `Concentus`, `jFLAC`, `JAAD` sowie Minecrafts `JOrbis` & eigener WAV-Decoder) sind komplett in reinem Java enthalten — kein FFmpeg und keine externen DLLs nötig, es wird nur die **Fabric API** benötigt.
+  - Live-Suche nach Titel, Künstler, Dateiname oder **Audioformat** (`FLAC`, `OPUS`, `M4A`, `WAV`, `OGG`, `MP3`), farbige Format-Badges, Echtzeit-Equalizer, **Seeking**, **Shuffle**, **Loop** (`Aus` / `Alle` / `1x`), **Lautstärke-Slider**, **Stummschaltung anderer Streams** & **Drag & Drop Import**!
 
 ---
 
@@ -46,18 +46,18 @@ Ein moderner, tragbarer **Ingame-Multiformat-Musikplayer** für **Minecraft 26.2
 - **Java:** `25+`
 
 ### Einrichtung
-1. Lege die gebaute `mp3player-1.1.0.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
-   > 💡 **Hinweis für Essential World Hosting & Server:** Für den **🔊 3D-Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.1.0.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — egal ob du `.flac`, `.wav`, `.m4a`, `.opus`, `.ogg` oder `.mp3` abspielst, die Musik wird live in Echtzeit als Opus-Stream übertragen!
+1. Lege die gebaute `mp3player-1.2.0.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
+   > 💡 **Hinweis für Essential World Hosting & Server:** Für den **🔊 3D-Lautsprecher** und die **📻 Boombox** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.2.0.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
 2. **Eigene Audiodateien hinzufügen (3 Möglichkeiten):**
-   - 📂 **Ingame-Button:** Rechtsklick mit dem MP3-Player → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
-   - 🖱️ **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete MP3-Player-GUI in Minecraft.
+   - 📂 **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
+   - 🖱️ **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.
    - 📁 **Manuell:** Kopiere deine Audiodateien in den Ordner `<minecraft-instanz>/mp3s/` *(Unterordner werden ebenfalls automatisch erkannt)*.
 
 ---
 
-## 🛠️ Crafting-Rezept
+## 🛠️ Crafting-Rezepte
 
-Der **MP3-Player** lässt sich im Survival-Modus an der Werkbank herstellen:
+### 1. Tragbarer MP3-Player (`mp3player:mp3_player`)
 
 | | Spalte 1 | Spalte 2 | Spalte 3 |
 | :--- | :---: | :---: | :---: |
@@ -65,7 +65,15 @@ Der **MP3-Player** lässt sich im Survival-Modus an der Werkbank herstellen:
 | **Mitte** | Eisenbarren | Notenblock | Eisenbarren |
 | **Unten** | Eisenbarren | Redstone | Eisenbarren |
 
-*(Alternativ im Creative-Inventar unter **Werkzeuge & Hilfsmittel** oder per `/give @s mp3player:mp3_player` erhältlich.)*
+### 2. Platzierbare 3D-Boombox (`mp3player:boombox`)
+
+| | Spalte 1 | Spalte 2 | Spalte 3 |
+| :--- | :---: | :---: | :---: |
+| **Oben** | Eisenbarren | Redstone | Eisenbarren |
+| **Mitte** | Notenblock | Goldbarren | Notenblock |
+| **Unten** | Holzbretter | Holzbretter | Holzbretter |
+
+*(Beide Items sind im Creative-Inventar unter **Werkzeuge & Hilfsmittel** zu finden; die Boombox zusätzlich unter **Funktionale Blöcke**.)*
 
 ---
 
@@ -73,22 +81,23 @@ Der **MP3-Player** lässt sich im Survival-Modus an der Werkbank herstellen:
 
 | Aktion | Funktion |
 | :--- | :--- |
-| **Rechtsklick** *(mit Item in der Hand)* | Öffnet das MP3-Player-GUI |
-| **Shift + Rechtsklick** *(mit Item in der Hand)* | Schnelles **Play / Pause** ohne Öffnen des Menüs |
-| **Taste `M`** *(konfigurierbar in den Optionen)* | Öffnet/schließt das GUI *(sofern sich das Item im Inventar befindet oder Creative aktiv ist)* |
+| **Rechtsklick** *(mit MP3-Player in der Hand)* | Öffnet das MP3-Player-GUI |
+| **Shift + Rechtsklick** *(mit MP3-Player in der Hand)* | Schnelles **Play / Pause** |
+| **Rechtsklick** *(auf platzierte Boombox)* | Öffnet das **Boombox-GUI** (spielt 3D-Sound vom Block ab) |
+| **Shift + Rechtsklick** *(auf Boombox mit leerer Hand)* | Schnelles **Play / Pause** an dieser Boombox |
+| **Taste `M`** *(konfigurierbar in den Optionen)* | Öffnet/schließt das GUI *(mit MP3-Player/Boombox im Inventar, bei aktiver Wiedergabe oder im Creative)* |
+| **Optionen → Musik & Geräusche... → `MP3 & Boombox`** | Eigener Lautstärke-Slider (`AUS` – `100 %`) unabhängig von der Gesamtlautstärke |
 | **`Leertaste`** *(im geöffneten GUI)* | Play / Pause |
 | **`←` / `→` Pfeiltasten** *(im geöffneten GUI)* | `-5 Sek.` / `+5 Sek.` spulen |
 
-Alle Einstellungen (Lautstärke, Audio-Modus, Shuffle, Loop, Stummschaltung anderer Spieler) werden automatisch in `config/mp3player.properties` gespeichert.
+Alle Einstellungen (Minecraft-Optionen-Musiklautstärke, Player-Lautstärke, Audio-Modus, Shuffle, Loop, Stummschaltung anderer Spieler) werden automatisch in `config/mp3player.properties` gespeichert.
 
 ### 🧪 Debug / Timeout-Test-Helper (Client-Befehl)
-
-Um Verbindungsabbrüche & Timeouts direkt aus Modrinth heraus (auf jedem Server, in Essential-Welten oder im Singleplayer **ohne** OP-Rechte und ohne Windows-Firewall-Eingriffe) zuverlässig zu testen:
 
 | Befehl | Wirkung |
 | :--- | :--- |
 | `/mp3timeout` *(oder `/mp3timeout now`)* | Löst sofort einen echten Netty-`ReadTimeoutException` (`Zeitüberschreitung`) aus. |
-| `/mp3timeout freeze [1..60]` | Blockiert alle ein- & ausgehenden Pakete in der Netty-Pipeline (Welt friert wie bei echtem Internetabbruch ein, Standard: `8s`) und löst danach den echten Timeout aus. |
+| `/mp3timeout freeze [1..60]` | Blockiert alle ein- & ausgehenden Pakete in der Netty-Pipeline (Standard: `8s`) und löst danach den echten Timeout aus. |
 | `/mp3timeout cancel` | Hebt eine laufende `freeze`-Blockade vor Ablauf des Countdowns wieder auf. |
 
 ---
@@ -99,19 +108,20 @@ Um Verbindungsabbrüche & Timeouts direkt aus Modrinth heraus (auf jedem Server,
 src/
 ├── main/
 │   ├── java/de/vibecoded/mp3player/
-│   │   ├── Mp3PlayerMod.java            # Item-, Tab- & Netzwerk-Registrierung
-│   │   ├── item/Mp3PlayerItem.java      # Ingame-Item & Rechtsklick-/Tooltip-Logik
+│   │   ├── Mp3PlayerMod.java            # Item-, Boombox-Block-, Tab- & Netzwerk-Registrierung
+│   │   ├── block/BoomboxBlock.java      # Platzierbarer direktionaler 3D-Boombox-Block
+│   │   ├── item/                        # Mp3PlayerItem & BoomboxItem Interaktion & Tooltips
 │   │   ├── mp3/                         # Multiformat-Metadaten-Parser, Ogg-Demuxer & WAV/MP3-Header
-│   │   └── network/                     # <= 4 KB CustomPayloads & 3D-Server-Relay
-│   └── resources/                       # fabric.mod.json, Crafting-Rezept, Texturen & Übersetzungen (DE/EN)
+│   │   └── network/                     # <= 4 KB CustomPayloads & 3D-Speaker/Boombox-Server-Relay
+│   └── resources/                       # fabric.mod.json, Modelle, Rezepte, Loot-Table, Texturen & Lang
 └── client/
     └── java/de/vibecoded/mp3player/client/
         ├── Mp3PlayerClient.java         # Client-Entrypoint, Keybinding & Event-Hooks
         ├── audio/                       # OpenAL-Channel, 48 kHz Opus-3D-Codec & Format-Decoder
         │   └── decoder/                 # Streaming-PCM + Seek-Decoder (MP3, M4A, OPUS, WAV, FLAC, OGG)
-        ├── config/Mp3Config.java        # Persistente Spielereinstellungen
+        ├── config/Mp3Config.java        # Persistente Spieler- & Sound-Optionen-Einstellungen
         ├── debug/                       # Client-seitiger Timeout-Simulator (/mp3timeout)
-        ├── gui/Mp3PlayerScreen.java     # Modernes Ingame-Player-UI + Format-Badges + Drag & Drop
+        ├── gui/                         # Mp3PlayerScreen & 0-Mixin SoundOptionsInjector
         └── library/Mp3LibraryManager.java
 ```
 
@@ -122,7 +132,7 @@ Vorausgesetzt wird ein installiertes **JDK 25**:
 .\gradlew.bat build
 ```
 
-Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.1.0.jar`.
+Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.2.0.jar`.
 
 ---
 

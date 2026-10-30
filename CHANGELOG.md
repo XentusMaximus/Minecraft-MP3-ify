@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.0] - 2026-10-30
+
+### Added
+- **Placeable 3D Boombox Block & Item (`mp3player:boombox`)**:
+  - Craftable Survival stereo Boombox block (`Iron Ingots`, `Redstone`, `Note Blocks`, `Gold Ingot`, `Planks`) available in both the *Tools & Utilities* and *Functional Blocks* Creative Mode Tabs, with a block loot table so breaking drops the Boombox item.
+  - Custom 3D stereo cabinet + top carrying handle block model, directional horizontal placement (`FACING`), glowing active LED equalizer blockstate (`PLAYING` with subtle light emission), and floating musical note particles above the Boombox while playing.
+  - **World-Anchored 3D Positional Audio:** Plays true 3D directional OpenAL audio (`AL_LINEAR_DISTANCE_CLAMPED` up to 56 blocks) directly from the placed Boombox's block coordinates (`x + 0.5, y + 0.5, z + 0.5`) — audible in 3D **both to the owner and to all nearby players** across Singleplayer, LAN, Essential Mod World Hosting, and Dedicated Fabric Servers, across all 6 audio formats (`.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, `.ogg`).
+  - Right-click any placed Boombox to open the Boombox GUI (select tracks, transfer active playback to/from Headphones, or see who is currently playing on it); `Shift + Right-Click` with an empty hand for quick Play/Pause; breaking the Boombox immediately stops playback for everyone.
+- **Dedicated Volume Slider in Minecraft's Music & Sounds Options (`SoundOptionsScreen`)**:
+  - Added a native **`MP3 & Boombox`** (`0%` / `OFF` – `100%`) slider directly inside Minecraft's **Options → Music & Sounds...** menu using Fabric `ScreenEvents` (**0 Mixins**).
+  - Controls all local MP3-Player, Boombox, and incoming 3D speaker audio volumes independently of `Master Volume` with live real-time gain updates and automatic persistence in `config/mp3player.properties`.
+
+---
+
 ## [1.1.0] - 2026-10-30
 
 ### Added

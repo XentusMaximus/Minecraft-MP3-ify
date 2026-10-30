@@ -1,8 +1,10 @@
 package de.vibecoded.mp3player.network;
 
 import de.vibecoded.mp3player.Mp3PlayerMod;
+import java.util.Optional;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -21,18 +23,25 @@ public final class Mp3Payloads {
 
 	// ===================== CLIENT -> SERVER =====================
 
-	public record C2SStreamStart(UUID streamId, String trackTitle, float volume) implements CustomPacketPayload {
+	public record C2SStreamStart(
+			UUID streamId,
+			String trackTitle,
+			float volume,
+			Optional<BlockPos> boomboxPos
+	) implements CustomPacketPayload {
 		public static final Type<C2SStreamStart> TYPE = new Type<>(Mp3PlayerMod.id("c2s_stream_start"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, C2SStreamStart> CODEC = StreamCodec.of(
 				(buf, val) -> {
 					buf.writeUUID(val.streamId());
 					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
 					buf.writeFloat(clampVolume(val.volume()));
+					writeOptionalBlockPos(buf, val.boomboxPos());
 				},
 				buf -> new C2SStreamStart(
 						buf.readUUID(),
 						buf.readUtf(MAX_TEXT_LEN),
-						clampVolume(buf.readFloat())
+						clampVolume(buf.readFloat()),
+						readOptionalBlockPos(buf)
 				)
 		);
 
@@ -104,7 +113,8 @@ public final class Mp3Payloads {
 			String speakerName,
 			UUID streamId,
 			String trackTitle,
-			float volume
+			float volume,
+			Optional<BlockPos> boomboxPos
 	) implements CustomPacketPayload {
 		public static final Type<S2CStreamStart> TYPE = new Type<>(Mp3PlayerMod.id("s2c_stream_start"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, S2CStreamStart> CODEC = StreamCodec.of(
@@ -114,13 +124,15 @@ public final class Mp3Payloads {
 					buf.writeUUID(val.streamId());
 					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
 					buf.writeFloat(clampVolume(val.volume()));
+					writeOptionalBlockPos(buf, val.boomboxPos());
 				},
 				buf -> new S2CStreamStart(
 						buf.readUUID(),
 						buf.readUtf(64),
 						buf.readUUID(),
 						buf.readUtf(MAX_TEXT_LEN),
-						clampVolume(buf.readFloat())
+						clampVolume(buf.readFloat()),
+						readOptionalBlockPos(buf)
 				)
 		);
 
@@ -134,7 +146,8 @@ public final class Mp3Payloads {
 			UUID speakerUuid,
 			UUID streamId,
 			int sequence,
-			byte[] mp3Frames
+			byte[] mp3Frames,
+			Optional<BlockPos> boomboxPos
 	) implements CustomPacketPayload {
 		public static final Type<S2CStreamChunk> TYPE = new Type<>(Mp3PlayerMod.id("s2c_stream_chunk"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, S2CStreamChunk> CODEC = StreamCodec.of(
@@ -143,12 +156,14 @@ public final class Mp3Payloads {
 					buf.writeUUID(val.streamId());
 					buf.writeVarInt(val.sequence());
 					buf.writeByteArray(val.mp3Frames());
+					writeOptionalBlockPos(buf, val.boomboxPos());
 				},
 				buf -> new S2CStreamChunk(
 						buf.readUUID(),
 						buf.readUUID(),
 						buf.readVarInt(),
-						buf.readByteArray(MAX_CHUNK_BYTES)
+						buf.readByteArray(MAX_CHUNK_BYTES),
+						readOptionalBlockPos(buf)
 				)
 		);
 
@@ -214,6 +229,19 @@ public final class Mp3Payloads {
 		PayloadTypeRegistry.clientboundPlay().register(S2CStreamStop.TYPE, S2CStreamStop.CODEC);
 	}
 
+	private static void writeOptionalBlockPos(RegistryFriendlyByteBuf buf, Optional<BlockPos> optPos) {
+		if (optPos != null && optPos.isPresent()) {
+			buf.writeBoolean(true);
+			buf.writeBlockPos(optPos.get());
+		} else {
+			buf.writeBoolean(false);
+		}
+	}
+
+	private static Optional<BlockPos> readOptionalBlockPos(RegistryFriendlyByteBuf buf) {
+		return buf.readBoolean() ? Optional.of(buf.readBlockPos()) : Optional.empty();
+	}
+
 	private static String truncate(String s) {
 		if (s == null) {
 			return "";
@@ -228,4 +256,3 @@ public final class Mp3Payloads {
 		return Math.max(0.0f, Math.min(1.0f, v));
 	}
 }
-

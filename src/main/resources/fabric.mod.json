@@ -3,7 +3,7 @@
 	"id": "mp3player",
 	"version": "${version}",
 	"name": "MP3-Player",
-	"description": "Tragbarer Ingame-Musikplayer (MP3, M4A, Opus, WAV, FLAC & OGG) mit modernem GUI, Kopfhörer-Modus (Stereo) und Essential-kompatiblem Opus-3D-Raumklang.",
+	"description": "In-game MP3-Player & placeable 3D Boombox (MP3, M4A, Opus, WAV, FLAC & OGG) with modern GUI, Minecraft Sound Options volume slider, and Essential-compatible Opus 3D spatial audio.",
 	"authors": [
 		"IceKaffee"
 	],

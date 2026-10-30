@@ -2,11 +2,13 @@ package de.vibecoded.mp3player.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import de.vibecoded.mp3player.Mp3PlayerMod;
+import de.vibecoded.mp3player.block.BoomboxBlock;
 import de.vibecoded.mp3player.client.audio.Mp3AudioController;
 import de.vibecoded.mp3player.client.audio.RemoteSpeakerManager;
 import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.client.debug.TimeoutSimulationHelper;
 import de.vibecoded.mp3player.client.gui.Mp3PlayerScreen;
+import de.vibecoded.mp3player.client.gui.SoundOptionsInjector;
 import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
 import de.vibecoded.mp3player.item.Mp3PlayerItem;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
@@ -24,7 +26,10 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.Level;
 import org.lwjgl.glfw.GLFW;
 
 public class Mp3PlayerClient implements ClientModInitializer {
@@ -41,6 +46,9 @@ public class Mp3PlayerClient implements ClientModInitializer {
 		audioController = new Mp3AudioController(config, libraryManager);
 		remoteSpeakerManager = new RemoteSpeakerManager(config);
 
+		// Inject native MP3 & Boombox volume slider into Minecraft's Music & Sounds Options (0 Mixins)
+		SoundOptionsInjector.register(config, audioController, remoteSpeakerManager);
+
 		KeyMapping.Category category = KeyMapping.Category.register(Mp3PlayerMod.id("main"));
 		openPlayerKey = KeyMappingHelper.registerKeyMapping(new KeyMapping(
 				"key.mp3player.open",
@@ -49,7 +57,7 @@ public class Mp3PlayerClient implements ClientModInitializer {
 				category
 		));
 
-		// Connect Item Right-Click & Shift+Right-Click to Client UI / Quick Toggle
+		// Connect Handheld Item Right-Click & Shift+Right-Click to Client UI / Quick Toggle
 		Mp3PlayerItem.clientUseCallback = shiftHeld -> {
 			Minecraft mc = Minecraft.getInstance();
 			if (shiftHeld) {
@@ -59,7 +67,17 @@ public class Mp3PlayerClient implements ClientModInitializer {
 			}
 		};
 
-		// Register S2C 3D speaker stream receivers (Essential & Multiplayer compatible)
+		// Connect Placed Boombox Block Right-Click & Shift+Right-Click to Boombox UI / Quick Toggle
+		BoomboxBlock.clientUseCallback = (level, pos, shiftHeld) -> {
+			Minecraft mc = Minecraft.getInstance();
+			if (shiftHeld) {
+				handleBoomboxQuickToggle(mc, level.dimension(), pos);
+			} else {
+				openBoomboxScreen(mc, level.dimension(), pos);
+			}
+		};
+
+		// Register S2C 3D speaker & Boombox stream receivers (Essential & Multiplayer compatible)
 		ClientPlayNetworking.registerGlobalReceiver(S2CStreamStart.TYPE, (payload, context) ->
 				context.client().execute(() -> remoteSpeakerManager.onStreamStart(payload)));
 
@@ -70,7 +88,14 @@ public class Mp3PlayerClient implements ClientModInitializer {
 				context.client().execute(() -> remoteSpeakerManager.onStreamState(payload)));
 
 		ClientPlayNetworking.registerGlobalReceiver(S2CStreamStop.TYPE, (payload, context) ->
-				context.client().execute(() -> remoteSpeakerManager.onStreamStop(payload)));
+				context.client().execute(() -> {
+					Minecraft mc = context.client();
+					if (mc.player != null && mc.player.getUUID().equals(payload.speakerUuid())) {
+						audioController.onServerStoppedStream(payload.streamId());
+					} else {
+						remoteSpeakerManager.onStreamStop(payload);
+					}
+				}));
 
 		TimeoutSimulationHelper.registerCommands();
 
@@ -116,15 +141,21 @@ public class Mp3PlayerClient implements ClientModInitializer {
 	}
 
 	private static boolean hasMp3PlayerAccess(LocalPlayer player) {
-		if (player.isCreative() || player.isSpectator()) {
+		if (player.isCreative() || player.isSpectator() || audioController.hasActiveTrack()) {
 			return true;
 		}
-		return player.getInventory().contains(stack -> stack.is(Mp3PlayerMod.MP3_PLAYER_ITEM));
+		return player.getInventory().contains(stack ->
+				stack.is(Mp3PlayerMod.MP3_PLAYER_ITEM) || stack.is(Mp3PlayerMod.BOOMBOX_ITEM));
 	}
 
 	private static void openPlayerScreen(Minecraft mc) {
 		libraryManager.refresh();
 		mc.gui.setScreen(new Mp3PlayerScreen(audioController, remoteSpeakerManager, openPlayerKey));
+	}
+
+	private static void openBoomboxScreen(Minecraft mc, ResourceKey<Level> dimension, BlockPos pos) {
+		libraryManager.refresh();
+		mc.gui.setScreen(new Mp3PlayerScreen(audioController, remoteSpeakerManager, openPlayerKey, dimension, pos));
 	}
 
 	private static void handleQuickToggle(Minecraft mc) {
@@ -143,6 +174,30 @@ public class Mp3PlayerClient implements ClientModInitializer {
 		if (mc.player != null && track != null) {
 			String key = audioController.isPlaying() ? "message.mp3player.playing" : "message.mp3player.paused";
 			ChatFormatting color = audioController.isPlaying() ? ChatFormatting.AQUA : ChatFormatting.GRAY;
+			mc.player.sendOverlayMessage(
+					Component.translatable(key, track.fullDisplayLabel()).withStyle(color)
+			);
+		}
+	}
+
+	private static void handleBoomboxQuickToggle(Minecraft mc, ResourceKey<Level> dimension, BlockPos pos) {
+		libraryManager.refresh();
+		if (libraryManager.tracks().isEmpty() && !audioController.hasActiveTrack()) {
+			if (mc.player != null) {
+				mc.player.sendOverlayMessage(
+						Component.translatable("message.mp3player.no_tracks")
+								.withStyle(ChatFormatting.YELLOW)
+				);
+			}
+			return;
+		}
+		audioController.togglePlayPauseOnBoombox(dimension, pos);
+		Mp3TrackInfo track = audioController.currentTrack();
+		if (mc.player != null && track != null) {
+			String key = audioController.isPlaying()
+					? "message.mp3player.boombox_playing"
+					: "message.mp3player.paused";
+			ChatFormatting color = audioController.isPlaying() ? ChatFormatting.GREEN : ChatFormatting.GRAY;
 			mc.player.sendOverlayMessage(
 					Component.translatable(key, track.fullDisplayLabel()).withStyle(color)
 			);

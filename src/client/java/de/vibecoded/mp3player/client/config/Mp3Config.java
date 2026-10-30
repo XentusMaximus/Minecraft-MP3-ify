@@ -26,6 +26,7 @@ public final class Mp3Config {
 
 	private final Path configFile;
 	private float volume = 0.80f;
+	private float optionsVolume = 1.00f;
 	private boolean speaker3dMode = false;
 	private boolean shuffle = false;
 	private LoopMode loopMode = LoopMode.OFF;
@@ -41,7 +42,19 @@ public final class Mp3Config {
 	}
 
 	public void setVolume(float volume) {
-		this.volume = Math.max(0.0f, Math.min(1.0f, volume));
+		this.volume = clamp01(volume);
+	}
+
+	/**
+	 * Global MP3 & Boombox music category volume configured in Minecraft's
+	 * Music & Sounds Options screen (0.0 .. 1.0).
+	 */
+	public float optionsVolume() {
+		return optionsVolume;
+	}
+
+	public void setOptionsVolume(float optionsVolume) {
+		this.optionsVolume = clamp01(optionsVolume);
 	}
 
 	public boolean speaker3dMode() {
@@ -84,7 +97,8 @@ public final class Mp3Config {
 		Properties props = new Properties();
 		try (InputStream in = Files.newInputStream(configFile)) {
 			props.load(in);
-			this.volume = Math.max(0.0f, Math.min(1.0f, Float.parseFloat(props.getProperty("volume", "0.80"))));
+			this.volume = clamp01(Float.parseFloat(props.getProperty("volume", "0.80")));
+			this.optionsVolume = clamp01(Float.parseFloat(props.getProperty("optionsVolume", "1.00")));
 			this.speaker3dMode = Boolean.parseBoolean(props.getProperty("speaker3dMode", "false"));
 			this.shuffle = Boolean.parseBoolean(props.getProperty("shuffle", "false"));
 			this.muteOthers = Boolean.parseBoolean(props.getProperty("muteOthers", "false"));
@@ -101,6 +115,7 @@ public final class Mp3Config {
 	public void save() {
 		Properties props = new Properties();
 		props.setProperty("volume", Float.toString(volume));
+		props.setProperty("optionsVolume", Float.toString(optionsVolume));
 		props.setProperty("speaker3dMode", Boolean.toString(speaker3dMode));
 		props.setProperty("shuffle", Boolean.toString(shuffle));
 		props.setProperty("loopMode", loopMode.name());
@@ -109,11 +124,17 @@ public final class Mp3Config {
 		try {
 			Files.createDirectories(configFile.getParent());
 			try (OutputStream out = Files.newOutputStream(configFile)) {
-				props.store(out, "MP3-Player Mod Configuration");
+				props.store(out, "MP3-Player & Boombox Mod Configuration");
 			}
 		} catch (IOException e) {
 			Mp3PlayerMod.LOGGER.warn("Failed to save mp3player.properties", e);
 		}
 	}
-}
 
+	private static float clamp01(float val) {
+		if (Float.isNaN(val)) {
+			return 1.0f;
+		}
+		return Math.max(0.0f, Math.min(1.0f, val));
+	}
+}

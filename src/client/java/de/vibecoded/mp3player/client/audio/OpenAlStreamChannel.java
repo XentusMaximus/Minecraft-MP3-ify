@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.function.Consumer;
 import org.lwjgl.openal.AL10;
 import org.lwjgl.openal.AL11;
 import org.lwjgl.openal.ALC10;
@@ -17,7 +18,7 @@ import org.lwjgl.openal.ALC10;
  */
 public final class OpenAlStreamChannel implements AutoCloseable {
 	private static final int AL_SOURCE_DISTANCE_MODEL = 0xD000;
-	private static final int MAX_QUEUED_BUFFERS = 16;
+	private static final int MAX_QUEUED_BUFFERS = 10; // ~0.83s smooth OpenAL buffer window
 
 	private int sourceId = 0;
 	private boolean positional3D;
@@ -60,11 +61,22 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 		}
 	}
 
-	/**
-	 * Unqueues finished buffers, queues newly decoded PCM buffers, updates gain/pause state,
-	 * and returns true when playback has completely finished (EOS + all buffers drained).
-	 */
 	public boolean pump(Queue<PcmChunk> pcmQueue, boolean paused, float effectiveGain, int minPrebufferChunks) {
+		return pump(pcmQueue, paused, effectiveGain, minPrebufferChunks, null);
+	}
+
+	/**
+	 * Unqueues finished buffers, queues newly decoded PCM buffers, invokes optional tap listener
+	 * (used to feed 3D Opus network streaming in 1:1 lockstep with OpenAL playback),
+	 * updates gain/pause state, and returns true when playback has completely finished.
+	 */
+	public boolean pump(
+			Queue<PcmChunk> pcmQueue,
+			boolean paused,
+			float effectiveGain,
+			int minPrebufferChunks,
+			Consumer<PcmChunk> onChunkQueued
+	) {
 		if (closed || ALC10.alcGetCurrentContext() == 0L) {
 			return false;
 		}
@@ -111,6 +123,9 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 			}
 			if (chunk.endOfStream()) {
 				eosReceived = true;
+				if (onChunkQueued != null) {
+					onChunkQueued.accept(chunk);
+				}
 				break;
 			}
 			if (chunk.samples().length == 0) {
@@ -144,6 +159,9 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 					currentVisualizerLevel = Math.max(currentVisualizerLevel, chunk.rmsLevel());
 				}
 				currentlyQueued++;
+				if (onChunkQueued != null) {
+					onChunkQueued.accept(chunk);
+				}
 			} else {
 				freeBuffers.push(bufId);
 				break;
@@ -238,4 +256,3 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 		queuedMeta.clear();
 	}
 }
-

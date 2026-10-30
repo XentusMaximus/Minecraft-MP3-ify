@@ -143,6 +143,7 @@ public final class Mp3MetadataParser {
 			return new Mp3TrackInfo(
 					path,
 					fileName,
+					AudioFormatType.MP3,
 					title,
 					artist,
 					fileSize,

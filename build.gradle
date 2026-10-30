@@ -23,9 +23,20 @@ dependencies {
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	// Pure-Java MP3 decoder bundled directly inside the mod JAR
+	// Pure-Java audio codecs bundled directly inside the mod JAR:
+	// MP3 (JLayer), Opus (Concentus), FLAC (jFLAC), M4A/AAC (JAAD)
+	// Note: Ogg Vorbis (JOrbis) is already shipped natively by Minecraft 26.2, and WAV is decoded natively.
 	implementation "javazoom:jlayer:1.0.1"
 	include "javazoom:jlayer:1.0.1"
+
+	implementation "io.github.jaredmdobson:concentus:1.0.1"
+	include "io.github.jaredmdobson:concentus:1.0.1"
+
+	implementation "org.jflac:jflac-codec:1.5.2"
+	include "org.jflac:jflac-codec:1.5.2"
+
+	implementation "com.tianscar.javasound:jaad:0.9.4"
+	include "com.tianscar.javasound:jaad:0.9.4"
 }
 
 processResources {

@@ -1,7 +1,8 @@
 package de.vibecoded.mp3player.client.library;
 
 import de.vibecoded.mp3player.Mp3PlayerMod;
-import de.vibecoded.mp3player.mp3.Mp3MetadataParser;
+import de.vibecoded.mp3player.mp3.AudioFormatType;
+import de.vibecoded.mp3player.mp3.AudioMetadataParsers;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -59,11 +60,19 @@ public final class Mp3LibraryManager {
 			Path readme = mp3Directory.resolve("LIESMICH.txt");
 			if (!Files.exists(readme)) {
 				String help = """
-						=== Minecraft 26.2 MP3-Player Ordner ===
+						=== Minecraft 26.2 MP3-Player Musik-Ordner ===
 						
-						Lege einfach deine .mp3-Dateien in diesen Ordner (oder in Unterordner).
-						Tipp: Du kannst .mp3-Dateien auch direkt per Drag & Drop auf das geöffnete
-						MP3-Player-Fenster in Minecraft ziehen!
+						Unterstützte Audioformate (v1.1.0+):
+						  - .mp3   (MPEG-1/2/2.5 Layer I/II/III, ID3v1 & ID3v2)
+						  - .m4a   (MP4 / AAC-LC / HE-AAC, iTunes-Metadaten)
+						  - .opus  (Ogg Opus, Vorbis-Comments)
+						  - .wav   (8/16/24/32-Bit PCM & 32/64-Bit IEEE Float, RIFF INFO)
+						  - .flac  (Lossless 8–32 Bit FLAC, Vorbis-Comments)
+						  - .ogg   (Ogg Vorbis & Ogg Opus, Vorbis-Comments)
+						
+						Lege einfach deine Audiodateien in diesen Ordner (oder in Unterordner).
+						Tipp: Du kannst Dateien oder ganze Musikordner auch direkt per Drag & Drop
+						auf das geöffnete MP3-Player-Fenster in Minecraft ziehen!
 						""";
 				Files.writeString(readme, help, StandardCharsets.UTF_8);
 			}
@@ -76,28 +85,28 @@ public final class Mp3LibraryManager {
 		ensureDirectoryExists();
 		List<Mp3TrackInfo> loaded = new ArrayList<>();
 		try (Stream<Path> walk = Files.walk(mp3Directory, 3)) {
-			List<Path> mp3Files = walk
+			List<Path> audioFiles = walk
 					.filter(Files::isRegularFile)
-					.filter(Mp3LibraryManager::isMp3File)
+					.filter(AudioFormatType::isSupportedFile)
 					.toList();
 
-			for (Path file : mp3Files) {
+			for (Path file : audioFiles) {
 				try {
 					long mtime = Files.getLastModifiedTime(file).toMillis();
 					long size = Files.size(file);
-					if (size < 128) {
+					if (size < 44) {
 						continue;
 					}
 					CacheEntry cached = metadataCache.get(file);
 					if (cached != null && cached.lastModifiedMillis() == mtime && cached.size() == size) {
 						loaded.add(cached.info());
 					} else {
-						Mp3TrackInfo parsed = Mp3MetadataParser.parse(file);
+						Mp3TrackInfo parsed = AudioMetadataParsers.parse(file);
 						metadataCache.put(file, new CacheEntry(mtime, size, parsed));
 						loaded.add(parsed);
 					}
 				} catch (Exception e) {
-					Mp3PlayerMod.LOGGER.warn("Skipping unreadable MP3 file {}", file, e);
+					Mp3PlayerMod.LOGGER.warn("Skipping unreadable audio file {}", file, e);
 				}
 			}
 		} catch (IOException e) {
@@ -117,7 +126,7 @@ public final class Mp3LibraryManager {
 			}
 			if (Files.isDirectory(p)) {
 				try (Stream<Path> sub = Files.walk(p, 2)) {
-					for (Path child : sub.filter(Files::isRegularFile).filter(Mp3LibraryManager::isMp3File).toList()) {
+					for (Path child : sub.filter(Files::isRegularFile).filter(AudioFormatType::isSupportedFile).toList()) {
 						if (copyIntoLibrary(child)) {
 							imported++;
 						}
@@ -125,7 +134,7 @@ public final class Mp3LibraryManager {
 				} catch (IOException e) {
 					Mp3PlayerMod.LOGGER.warn("Failed reading dropped folder {}", p, e);
 				}
-			} else if (Files.isRegularFile(p) && isMp3File(p)) {
+			} else if (Files.isRegularFile(p) && AudioFormatType.isSupportedFile(p)) {
 				if (copyIntoLibrary(p)) {
 					imported++;
 				}
@@ -147,14 +156,8 @@ public final class Mp3LibraryManager {
 			Files.copy(normalizedSource, target, StandardCopyOption.REPLACE_EXISTING);
 			return true;
 		} catch (IOException e) {
-			Mp3PlayerMod.LOGGER.warn("Could not copy MP3 {} into library", source, e);
+			Mp3PlayerMod.LOGGER.warn("Could not copy audio file {} into library", source, e);
 			return false;
 		}
 	}
-
-	private static boolean isMp3File(Path path) {
-		String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-		return name.endsWith(".mp3");
-	}
 }
-

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] - 2026-10-30
+
+### Added
+- **Multi-Format Audio Support (`.m4a`, `.opus`, `.wav`, `.flac`, `.ogg`, `.mp3`)**:
+  - **`.m4a` (MP4 / AAC-LC / HE-AAC / SBR / PS):** Bundled pure-Java `JAAD 0.9.4` decoder with iTunes metadata (`TITLE`, `ARTIST`, `ALBUM_ARTIST`) and O(1) MP4 sample-table seeking.
+  - **`.opus` (Ogg Opus):** Bundled pure-Java `Concentus 1.0.1` RFC 7845 decoder with `OpusTags` Vorbis Comment metadata, pre-skip & Q7.8 output-gain handling, trailing granule duration calculation, and O(1) Ogg page-resync seeking.
+  - **`.wav` (RIFF/WAVE):** Native pure-Java streaming decoder supporting 8/16/24/32-bit Linear PCM, 32/64-bit IEEE Float, and `WAVE_FORMAT_EXTENSIBLE`, `LIST`/`INFO` (`INAM`/`IART`) metadata, and exact frame-aligned O(1) seeking.
+  - **`.flac` (Lossless FLAC):** Bundled pure-Java `jFLAC 1.5.2` streaming decoder supporting 8–32 bit depths, `VorbisComment` metadata, exact `StreamInfo` duration, and instant `SeekTable` / frame-sync seeking.
+  - **`.ogg` (Ogg Vorbis & Ogg Opus):** Powered by Minecraft's native `JOrbis` decoder (with automatic codec sniffing that seamlessly delegates Opus-encoded `.ogg` files to the Opus decoder), `VorbisComment` metadata, trailing granule duration calculation, and O(1) Ogg page-resync seeking.
+- **Format Badges & Format Search in GUI (`Mp3PlayerScreen`)**:
+  - Color-coded format pills (`MP3`, `M4A`, `OPUS`, `WAV`, `FLAC`, `OGG`) next to each track in the playlist.
+  - Live search bar now also filters by audio format (e.g., typing `flac` or `opus`).
+  - Drag & Drop file/folder import now accepts all 6 audio formats.
+
+### Changed
+- **Upgraded 3D Spatial Multiplayer Streaming to 48 kHz Pure-Java Opus (`Opus3dStreamCodec`)**:
+  - All 6 local audio formats can now be broadcast live in **🔊 3D Speaker Mode** across Dedicated Fabric Servers, LAN, and **Essential Mod** hosted worlds.
+  - Decoded local PCM is tapped in 1:1 hardware-clock lockstep with OpenAL, downmixed to mono, continuously resampled to `48 kHz`, and encoded at `64 kbps` (~8 KB/s) into compact `<= 4 KB` `CustomPacketPayload` batches — eliminating clock drift, cutting network bandwidth by up to 95% compared to uncompressed audio, and allowing instant headerless mid-song joining and seeking for any source format.
+
+---
+
 ## [1.0.1] - 2026-10-29
 
 ### Added
@@ -41,4 +62,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Persistent client configuration stored in `config/mp3player.properties`.
   - Bundled `JLayer 1.0.1` pure-Java MP3 decoder inside the mod JAR.
   - Full English (`en_us`) and German (`de_de`) localizations.
-

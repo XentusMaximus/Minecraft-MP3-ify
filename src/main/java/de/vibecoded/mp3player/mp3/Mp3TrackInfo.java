@@ -6,6 +6,7 @@ import java.util.Locale;
 public record Mp3TrackInfo(
 		Path file,
 		String fileName,
+		AudioFormatType format,
 		String title,
 		String artist,
 		long fileSize,
@@ -15,6 +16,37 @@ public record Mp3TrackInfo(
 		int bitrateKbps,
 		int sampleRate
 ) {
+	public Mp3TrackInfo(
+			Path file,
+			String fileName,
+			String title,
+			String artist,
+			long fileSize,
+			long audioStartOffset,
+			long audioByteLength,
+			int durationSeconds,
+			int bitrateKbps,
+			int sampleRate
+	) {
+		this(
+				file,
+				fileName,
+				AudioFormatType.fromFileName(fileName) != null ? AudioFormatType.fromFileName(fileName) : AudioFormatType.MP3,
+				title,
+				artist,
+				fileSize,
+				audioStartOffset,
+				audioByteLength,
+				durationSeconds,
+				bitrateKbps,
+				sampleRate
+		);
+	}
+
+	public String formatBadge() {
+		return format != null ? format.badge() : "MP3";
+	}
+
 	public String displayTitle() {
 		if (title != null && !title.isBlank()) {
 			return title;
@@ -28,7 +60,7 @@ public record Mp3TrackInfo(
 		if (artist != null && !artist.isBlank()) {
 			return artist;
 		}
-		return bitrateKbps > 0 ? (bitrateKbps + " kbps") : "MP3";
+		return bitrateKbps > 0 ? (formatBadge() + " · " + bitrateKbps + " kbps") : formatBadge();
 	}
 
 	public String fullDisplayLabel() {
@@ -53,6 +85,9 @@ public record Mp3TrackInfo(
 		if (artist != null && artist.toLowerCase(Locale.ROOT).contains(q)) {
 			return true;
 		}
+		if (formatBadge().toLowerCase(Locale.ROOT).contains(q)) {
+			return true;
+		}
 		return fileName.toLowerCase(Locale.ROOT).contains(q);
 	}
 
@@ -69,4 +104,3 @@ public record Mp3TrackInfo(
 		return String.format(Locale.ROOT, "%d:%02d", minutes, seconds);
 	}
 }
-

@@ -3,7 +3,7 @@
 	"id": "mp3player",
 	"version": "${version}",
 	"name": "MP3-Player",
-	"description": "Tragbarer Ingame-MP3-Player mit modernem GUI, Kopfhörer-Modus (Stereo) und Essential-kompatiblem 3D-Raumklang.",
+	"description": "Tragbarer Ingame-Musikplayer (MP3, M4A, Opus, WAV, FLAC & OGG) mit modernem GUI, Kopfhörer-Modus (Stereo) und Essential-kompatiblem Opus-3D-Raumklang.",
 	"authors": [
 		"IceKaffee"
 	],

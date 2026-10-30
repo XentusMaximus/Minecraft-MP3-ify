@@ -1,27 +1,23 @@
 package de.vibecoded.mp3player.client.audio;
 
+import de.vibecoded.mp3player.client.audio.Opus3dStreamCodec.RemoteOpusDecodeWorker;
 import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStop;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.player.Player;
 
 /**
- * Manages incoming 3D positional MP3 streams from other players in Multiplayer / Essential worlds.
+ * Manages incoming 48 kHz Opus 3D positional audio streams from other players
+ * in Multiplayer / Essential worlds (supporting all 6 source audio formats).
  */
 public final class RemoteSpeakerManager {
 	public static final class RemoteStream implements AutoCloseable {
@@ -29,8 +25,7 @@ public final class RemoteSpeakerManager {
 		private final String speakerName;
 		private final UUID streamId;
 		private final String trackTitle;
-		private final ChunkQueueInputStream inputStream;
-		private final Mp3DecodeWorker decodeWorker;
+		private final RemoteOpusDecodeWorker decodeWorker;
 		private final OpenAlStreamChannel alChannel;
 		private volatile float speakerVolume;
 		private volatile boolean paused;
@@ -44,9 +39,7 @@ public final class RemoteSpeakerManager {
 			this.speakerVolume = volume;
 			this.paused = false;
 			this.lastPacketMs = System.currentTimeMillis();
-			this.inputStream = new ChunkQueueInputStream();
-			// Force mono downmix so OpenAL applies full 3D directional panning & distance attenuation!
-			this.decodeWorker = new Mp3DecodeWorker("Remote-" + speakerName, inputStream, true);
+			this.decodeWorker = new RemoteOpusDecodeWorker(speakerName);
 			this.alChannel = new OpenAlStreamChannel(true);
 			this.decodeWorker.start();
 		}
@@ -63,9 +56,9 @@ public final class RemoteSpeakerManager {
 			return paused;
 		}
 
-		void pushMp3Bytes(byte[] bytes) {
+		void pushAudioPacket(byte[] bytes) {
 			this.lastPacketMs = System.currentTimeMillis();
-			this.inputStream.push(bytes);
+			this.decodeWorker.pushPacket(bytes);
 		}
 
 		void updateState(boolean paused, float volume) {
@@ -76,66 +69,8 @@ public final class RemoteSpeakerManager {
 
 		@Override
 		public void close() {
-			inputStream.close();
-			decodeWorker.cancel();
+			decodeWorker.close();
 			alChannel.close();
-		}
-	}
-
-	private static final class ChunkQueueInputStream extends InputStream {
-		private final BlockingQueue<byte[]> queue = new LinkedBlockingQueue<>(256);
-		private final AtomicBoolean closed = new AtomicBoolean(false);
-		private byte[] current;
-		private int index;
-
-		void push(byte[] chunk) {
-			if (closed.get() || chunk == null || chunk.length == 0) {
-				return;
-			}
-			if (!queue.offer(chunk)) {
-				queue.poll(); // drop oldest if severely backed up so stream stays live
-				queue.offer(chunk);
-			}
-		}
-
-		@Override
-		public int read() throws IOException {
-			byte[] one = new byte[1];
-			int r = read(one, 0, 1);
-			return r == -1 ? -1 : (one[0] & 0xFF);
-		}
-
-		@Override
-		public int read(byte[] b, int off, int len) throws IOException {
-			if (len == 0) {
-				return 0;
-			}
-			while (current == null || index >= current.length) {
-				if (closed.get() && queue.isEmpty()) {
-					return -1;
-				}
-				try {
-					byte[] next = queue.poll(200, TimeUnit.MILLISECONDS);
-					if (next != null) {
-						current = next;
-						index = 0;
-					} else if (closed.get()) {
-						return -1;
-					}
-				} catch (InterruptedException e) {
-					Thread.currentThread().interrupt();
-					return -1;
-				}
-			}
-			int avail = Math.min(len, current.length - index);
-			System.arraycopy(current, index, b, off, avail);
-			index += avail;
-			return avail;
-		}
-
-		@Override
-		public void close() {
-			closed.set(true);
 		}
 	}
 
@@ -180,14 +115,13 @@ public final class RemoteSpeakerManager {
 		}
 		RemoteStream stream = activeStreams.get(payload.speakerUuid());
 		if (stream == null || !stream.streamId.equals(payload.streamId())) {
-			// Auto-create fallback stream if chunk arrived before start
 			if (stream != null) {
 				stream.close();
 			}
 			stream = new RemoteStream(payload.speakerUuid(), "Spieler", payload.streamId(), "3D-Stream", 0.8f);
 			activeStreams.put(payload.speakerUuid(), stream);
 		}
-		stream.pushMp3Bytes(payload.mp3Frames());
+		stream.pushAudioPacket(payload.mp3Frames());
 	}
 
 	public void onStreamState(S2CStreamState payload) {
@@ -231,7 +165,6 @@ public final class RemoteSpeakerManager {
 
 			Player speakerEntity = findPlayer(client, stream.speakerUuid);
 			if (speakerEntity == null) {
-				// Keep decoding silently for a moment if entity chunks are still loading, or mute
 				stream.alChannel.pump(stream.decodeWorker.outputQueue(), stream.paused, 0.0f, 3);
 				continue;
 			}
@@ -275,4 +208,3 @@ public final class RemoteSpeakerManager {
 		activeStreams.clear();
 	}
 }
-

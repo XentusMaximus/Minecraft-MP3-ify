@@ -398,20 +398,29 @@ public class Mp3PlayerScreen extends Screen {
 				graphics.text(this.font, num, iconX, rowTop + 7, 0xFF475569, false);
 			}
 
-			// Duration right-aligned
+			// Duration right-aligned + compact Format Badge pill
 			String dur = track.formattedDuration();
 			int durW = this.font.width(dur);
 			int durX = innerRight - 10 - durW;
 			graphics.text(this.font, dur, durX, rowTop + 7, isCurrent ? 0xFF7DD3FC : 0xFF64748B, false);
 
+			String badge = track.formatBadge();
+			int badgeTextW = this.font.width(badge);
+			int badgeBoxW = badgeTextW + 6;
+			int badgeX = durX - 6 - badgeBoxW;
+			int badgeY = rowTop + 5;
+			int badgeColor = formatBadgeColor(badge, isCurrent);
+			graphics.fill(badgeX, badgeY, badgeX + badgeBoxW, badgeY + 11, isCurrent ? 0x3338BDF8 : 0x221E293B);
+			graphics.outline(badgeX, badgeY, badgeBoxW, 11, (badgeColor & 0x00FFFFFF) | 0x55000000);
+			graphics.text(this.font, badge, badgeX + 3, badgeY + 2, badgeColor, false);
+
 			// Title + Subtitle/Artist clipped neatly
 			int textX = innerLeft + 25;
-			int availTextW = Math.max(40, durX - textX - 8);
+			int availTextW = Math.max(40, badgeX - textX - 6);
 			String primary = track.displayTitle();
 			String artist = track.artist();
 
 			if (artist != null && !artist.isBlank()) {
-				String combined = primary + "  ·  " + artist;
 				String fittedPrimary = clipText(primary, availTextW);
 				graphics.text(this.font, fittedPrimary, textX, rowTop + 3, isCurrent ? 0xFFF8FAFC : 0xFFE2E8F0, isCurrent);
 				String fittedArtist = clipText(artist, availTextW);
@@ -660,6 +669,18 @@ public class Mp3PlayerScreen extends Screen {
 		int contentHeight = filteredTracks.size() * ROW_HEIGHT;
 		double maxScroll = Math.max(0.0, contentHeight - viewHeight);
 		this.scrollOffset = Math.max(0.0, Math.min(maxScroll, this.scrollOffset));
+	}
+
+	private static int formatBadgeColor(String badge, boolean active) {
+		if (active) {
+			return 0xFF7DD3FC;
+		}
+		return switch (badge) {
+			case "FLAC", "WAV" -> 0xFF34D399; // Lossless emerald accent
+			case "OPUS", "OGG" -> 0xFFA78BFA; // Xiph violet accent
+			case "M4A" -> 0xFFFBBF24;         // AAC amber accent
+			default -> 0xFF94A3B8;            // MP3 slate accent
+		};
 	}
 
 	private String clipText(String text, int maxWidth) {

@@ -1,21 +1,17 @@
 package de.vibecoded.mp3player.client.audio;
 
 import de.vibecoded.mp3player.Mp3PlayerMod;
+import de.vibecoded.mp3player.client.audio.Opus3dStreamCodec.Opus3dBroadcaster;
+import de.vibecoded.mp3player.client.audio.decoder.AudioTrackDecoder;
 import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
-import de.vibecoded.mp3player.mp3.Mp3MetadataParser;
-import de.vibecoded.mp3player.mp3.Mp3MetadataParser.FrameChunk;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
-import de.vibecoded.mp3player.network.Mp3Payloads;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStop;
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -28,12 +24,12 @@ import net.minecraft.network.Connection;
 import net.minecraft.sounds.SoundSource;
 
 /**
- * Controls local MP3 playback, playlist navigation (Shuffle / Loop / Seek),
- * and synchronized 4 KB frame-aligned 3D network streaming (Essential & Multiplayer safe).
+ * Controls local multi-format audio playback (MP3, M4A, OPUS, WAV, FLAC, OGG),
+ * playlist navigation (Shuffle / Loop / Seek), and synchronized 48 kHz Opus 3D spatial
+ * network streaming (Essential & Multiplayer safe).
  */
 public final class Mp3AudioController {
-	private static final long STREAM_PREBUFFER_NANOS = 750_000_000L; // 0.75s smooth network lead
-	private static final int MAX_CHUNKS_PER_TICK = 3;                // max 12 KB/tick burst cap
+	private static final int MAX_CHUNKS_PER_TICK = 5;
 
 	private final Mp3Config config;
 	private final Mp3LibraryManager library;
@@ -46,15 +42,10 @@ public final class Mp3AudioController {
 	private boolean paused = false;
 	private double seekBaseSeconds = 0.0;
 
-	// Outgoing 3D network stream state
+	// Outgoing 3D Opus network stream state
 	private UUID activeStreamId;
-	private RandomAccessFile streamRaf;
-	private long streamFileOffset;
-	private long streamEndOffset;
+	private Opus3dBroadcaster opusBroadcaster;
 	private int streamSequence;
-	private long streamStartWallNanos;
-	private long streamPausedAtNanos;
-	private long streamSentAudioNanos;
 	private float lastSentNetworkVolume = -1.0f;
 	private int volumeSyncCooldown = 0;
 
@@ -137,23 +128,22 @@ public final class Mp3AudioController {
 		stopLocalAndNetwork(true);
 
 		try {
-			long startByteOffset = Mp3MetadataParser.findSeekFrameOffset(track, ratio);
-			long endByteOffset = track.audioStartOffset() + track.audioByteLength();
-			InputStream sliceStream = openBoundedSlice(track, startByteOffset, endByteOffset);
+			double clampedRatio = Math.max(0.0, Math.min(0.995, ratio));
+			AudioTrackDecoder trackDecoder = AudioTrackDecoder.open(track, clampedRatio);
 
 			this.currentTrack = track;
 			this.paused = false;
-			this.seekBaseSeconds = track.durationSeconds() * Math.max(0.0, Math.min(1.0, ratio));
-
-			this.decodeWorker = new Mp3DecodeWorker("Local", sliceStream, false);
-			this.alChannel = new OpenAlStreamChannel(false);
-			this.decodeWorker.start();
+			this.seekBaseSeconds = track.durationSeconds() * clampedRatio;
 
 			if (config.speaker3dMode() && isServerSupporting3D()) {
-				startOutgoing3dStream(track, startByteOffset, endByteOffset);
+				startOutgoing3dStream(track);
 			}
+
+			this.decodeWorker = new Mp3DecodeWorker("Local-" + track.formatBadge(), trackDecoder, false);
+			this.alChannel = new OpenAlStreamChannel(false);
+			this.decodeWorker.start();
 		} catch (IOException e) {
-			Mp3PlayerMod.LOGGER.error("Failed to play MP3 track {}", track.file(), e);
+			Mp3PlayerMod.LOGGER.error("Failed to play audio track {} ({})", track.file(), track.formatBadge(), e);
 			stop();
 		}
 	}
@@ -178,14 +168,7 @@ public final class Mp3AudioController {
 			return;
 		}
 		this.paused = shouldPause;
-		long now = System.nanoTime();
 		if (activeStreamId != null) {
-			if (shouldPause) {
-				streamPausedAtNanos = now;
-			} else if (streamPausedAtNanos != 0L) {
-				streamStartWallNanos += (now - streamPausedAtNanos);
-				streamPausedAtNanos = 0L;
-			}
 			sendNetworkStateNow();
 		}
 	}
@@ -261,16 +244,9 @@ public final class Mp3AudioController {
 			// Seamlessly stop network broadcast while keeping local stereo playback running!
 			stopOutgoing3dStream(true);
 		} else if (currentTrack != null && alChannel != null && isServerSupporting3D()) {
-			try {
-				long offset = Mp3MetadataParser.findSeekFrameOffset(currentTrack, progressRatio());
-				long endOffset = currentTrack.audioStartOffset() + currentTrack.audioByteLength();
-				startOutgoing3dStream(currentTrack, offset, endOffset);
-				if (paused) {
-					streamPausedAtNanos = System.nanoTime();
-					sendNetworkStateNow();
-				}
-			} catch (IOException e) {
-				Mp3PlayerMod.LOGGER.warn("Could not start live 3D stream mid-track", e);
+			startOutgoing3dStream(currentTrack);
+			if (paused) {
+				sendNetworkStateNow();
 			}
 		}
 	}
@@ -311,54 +287,50 @@ public final class Mp3AudioController {
 			sendNetworkStateNow();
 		}
 
-		// Pump local OpenAL playback
+		// 1. Pump local OpenAL playback (tapping queued PCM chunks into 3D Opus broadcaster when active)
+		boolean finished = false;
 		if (alChannel != null && decodeWorker != null) {
 			float masterVol = client.options.getSoundSourceVolume(SoundSource.MASTER);
 			float effectiveGain = config.volume() * masterVol;
-			boolean finished = alChannel.pump(decodeWorker.outputQueue(), paused, effectiveGain, 2);
-			if (finished) {
-				onTrackNaturallyFinished();
-				return;
-			}
+			finished = alChannel.pump(
+					decodeWorker.outputQueue(),
+					paused,
+					effectiveGain,
+					2,
+					this::onLocalChunkQueued
+			);
 		}
 
-		// Pump outgoing 4 KB frame-aligned 3D network chunks
+		// 2. Drain ready <= 4 KB Opus 3D packets to server
 		if (activeStreamId != null) {
 			if (!isServerSupporting3D()) {
 				stopOutgoing3dStream(false);
-				return;
-			}
-			if (!paused && streamRaf != null) {
-				long elapsedWallNanos = System.nanoTime() - streamStartWallNanos;
-				long targetAudioNanos = elapsedWallNanos + STREAM_PREBUFFER_NANOS;
-
+			} else if (!paused && opusBroadcaster != null) {
 				int sentThisTick = 0;
-				while (streamSentAudioNanos < targetAudioNanos && sentThisTick < MAX_CHUNKS_PER_TICK) {
-					try {
-						FrameChunk chunk = Mp3MetadataParser.readFrameAlignedChunk(
-								streamRaf,
-								streamFileOffset,
-								streamEndOffset,
-								Mp3Payloads.MAX_CHUNK_BYTES
-						);
-						if (chunk == null) {
-							closeStreamRaf();
-							break;
-						}
-						ClientPlayNetworking.send(new C2SStreamChunk(
-								activeStreamId,
-								streamSequence++,
-								chunk.data()
-						));
-						streamFileOffset = chunk.nextFileOffset();
-						streamSentAudioNanos += Math.max(1_000_000L, chunk.durationNanos());
-						sentThisTick++;
-					} catch (IOException e) {
-						closeStreamRaf();
+				while (sentThisTick < MAX_CHUNKS_PER_TICK) {
+					byte[] opusPacket = opusBroadcaster.pollOutboundPacket();
+					if (opusPacket == null) {
 						break;
 					}
+					ClientPlayNetworking.send(new C2SStreamChunk(
+							activeStreamId,
+							streamSequence++,
+							opusPacket
+					));
+					sentThisTick++;
 				}
 			}
+		}
+
+		if (finished) {
+			onTrackNaturallyFinished();
+		}
+	}
+
+	private void onLocalChunkQueued(PcmChunk chunk) {
+		Opus3dBroadcaster broadcaster = this.opusBroadcaster;
+		if (broadcaster != null && activeStreamId != null) {
+			broadcaster.submitPcm(chunk);
 		}
 	}
 
@@ -402,16 +374,11 @@ public final class Mp3AudioController {
 		}
 	}
 
-	private void startOutgoing3dStream(Mp3TrackInfo track, long startOffset, long endOffset) throws IOException {
+	private void startOutgoing3dStream(Mp3TrackInfo track) {
 		stopOutgoing3dStream(true);
-		this.streamRaf = new RandomAccessFile(track.file().toFile(), "r");
 		this.activeStreamId = UUID.randomUUID();
-		this.streamFileOffset = startOffset;
-		this.streamEndOffset = endOffset;
+		this.opusBroadcaster = new Opus3dBroadcaster();
 		this.streamSequence = 0;
-		this.streamStartWallNanos = System.nanoTime();
-		this.streamPausedAtNanos = 0L;
-		this.streamSentAudioNanos = 0L;
 		this.lastSentNetworkVolume = config.volume();
 
 		ClientPlayNetworking.send(new C2SStreamStart(
@@ -429,23 +396,16 @@ public final class Mp3AudioController {
 	}
 
 	private void stopOutgoing3dStream(boolean notifyServer) {
-		closeStreamRaf();
+		if (opusBroadcaster != null) {
+			opusBroadcaster.close();
+			opusBroadcaster = null;
+		}
 		if (activeStreamId != null) {
 			UUID oldId = activeStreamId;
 			activeStreamId = null;
 			if (notifyServer && isServerSupporting3D()) {
 				ClientPlayNetworking.send(new C2SStreamStop(oldId));
 			}
-		}
-	}
-
-	private void closeStreamRaf() {
-		if (streamRaf != null) {
-			try {
-				streamRaf.close();
-			} catch (IOException ignored) {
-			}
-			streamRaf = null;
 		}
 	}
 
@@ -469,55 +429,4 @@ public final class Mp3AudioController {
 		}
 		return -1;
 	}
-
-	private static InputStream openBoundedSlice(Mp3TrackInfo track, long startOffset, long endOffset) throws IOException {
-		FileInputStream fis = new FileInputStream(track.file().toFile());
-		long toSkip = Math.max(0L, startOffset);
-		while (toSkip > 0) {
-			long skipped = fis.skip(toSkip);
-			if (skipped <= 0) {
-				if (fis.read() == -1) {
-					break;
-				}
-				toSkip--;
-			} else {
-				toSkip -= skipped;
-			}
-		}
-		long maxRemaining = Math.max(0L, endOffset - startOffset);
-		return new InputStream() {
-			private long remaining = maxRemaining;
-
-			@Override
-			public int read() throws IOException {
-				if (remaining <= 0) {
-					return -1;
-				}
-				int b = fis.read();
-				if (b != -1) {
-					remaining--;
-				}
-				return b;
-			}
-
-			@Override
-			public int read(byte[] b, int off, int len) throws IOException {
-				if (remaining <= 0) {
-					return -1;
-				}
-				int capped = (int) Math.min(len, remaining);
-				int r = fis.read(b, off, capped);
-				if (r > 0) {
-					remaining -= r;
-				}
-				return r;
-			}
-
-			@Override
-			public void close() throws IOException {
-				fis.close();
-			}
-		};
-	}
 }
-

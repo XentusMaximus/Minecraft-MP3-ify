@@ -1,6 +1,9 @@
 package de.vibecoded.mp3player.network;
 
 import de.vibecoded.mp3player.Mp3PlayerMod;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
@@ -16,9 +19,20 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  */
 public final class Mp3Payloads {
 	public static final int MAX_CHUNK_BYTES = 4096;
+	public static final int MAX_LINKED_SPEAKERS = 64;
 	private static final int MAX_TEXT_LEN = 256;
 
 	private Mp3Payloads() {
+	}
+
+	/**
+	 * Represents a linked 3D Speaker block position and its individual volume multiplier (0.0 .. 1.0).
+	 */
+	public record SpeakerTarget(BlockPos pos, float volume) {
+		public SpeakerTarget(BlockPos pos, float volume) {
+			this.pos = pos != null ? pos.immutable() : BlockPos.ZERO;
+			this.volume = clampVolume(volume);
+		}
 	}
 
 	// ===================== CLIENT -> SERVER =====================
@@ -27,7 +41,9 @@ public final class Mp3Payloads {
 			UUID streamId,
 			String trackTitle,
 			float volume,
-			Optional<BlockPos> boomboxPos
+			Optional<BlockPos> boomboxPos,
+			boolean emitFromPlayer,
+			List<SpeakerTarget> speakers
 	) implements CustomPacketPayload {
 		public static final Type<C2SStreamStart> TYPE = new Type<>(Mp3PlayerMod.id("c2s_stream_start"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, C2SStreamStart> CODEC = StreamCodec.of(
@@ -36,12 +52,16 @@ public final class Mp3Payloads {
 					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
 					buf.writeFloat(clampVolume(val.volume()));
 					writeOptionalBlockPos(buf, val.boomboxPos());
+					buf.writeBoolean(val.emitFromPlayer());
+					writeSpeakerTargets(buf, val.speakers());
 				},
 				buf -> new C2SStreamStart(
 						buf.readUUID(),
 						buf.readUtf(MAX_TEXT_LEN),
 						clampVolume(buf.readFloat()),
-						readOptionalBlockPos(buf)
+						readOptionalBlockPos(buf),
+						buf.readBoolean(),
+						readSpeakerTargets(buf)
 				)
 		);
 
@@ -72,18 +92,31 @@ public final class Mp3Payloads {
 		}
 	}
 
-	public record C2SStreamState(UUID streamId, boolean paused, float volume) implements CustomPacketPayload {
+	public record C2SStreamState(
+			UUID streamId,
+			boolean paused,
+			float volume,
+			Optional<BlockPos> boomboxPos,
+			boolean emitFromPlayer,
+			List<SpeakerTarget> speakers
+	) implements CustomPacketPayload {
 		public static final Type<C2SStreamState> TYPE = new Type<>(Mp3PlayerMod.id("c2s_stream_state"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, C2SStreamState> CODEC = StreamCodec.of(
 				(buf, val) -> {
 					buf.writeUUID(val.streamId());
 					buf.writeBoolean(val.paused());
 					buf.writeFloat(clampVolume(val.volume()));
+					writeOptionalBlockPos(buf, val.boomboxPos());
+					buf.writeBoolean(val.emitFromPlayer());
+					writeSpeakerTargets(buf, val.speakers());
 				},
 				buf -> new C2SStreamState(
 						buf.readUUID(),
 						buf.readBoolean(),
-						clampVolume(buf.readFloat())
+						clampVolume(buf.readFloat()),
+						readOptionalBlockPos(buf),
+						buf.readBoolean(),
+						readSpeakerTargets(buf)
 				)
 		);
 
@@ -114,7 +147,9 @@ public final class Mp3Payloads {
 			UUID streamId,
 			String trackTitle,
 			float volume,
-			Optional<BlockPos> boomboxPos
+			Optional<BlockPos> boomboxPos,
+			boolean emitFromPlayer,
+			List<SpeakerTarget> speakers
 	) implements CustomPacketPayload {
 		public static final Type<S2CStreamStart> TYPE = new Type<>(Mp3PlayerMod.id("s2c_stream_start"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, S2CStreamStart> CODEC = StreamCodec.of(
@@ -125,6 +160,8 @@ public final class Mp3Payloads {
 					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
 					buf.writeFloat(clampVolume(val.volume()));
 					writeOptionalBlockPos(buf, val.boomboxPos());
+					buf.writeBoolean(val.emitFromPlayer());
+					writeSpeakerTargets(buf, val.speakers());
 				},
 				buf -> new S2CStreamStart(
 						buf.readUUID(),
@@ -132,7 +169,9 @@ public final class Mp3Payloads {
 						buf.readUUID(),
 						buf.readUtf(MAX_TEXT_LEN),
 						clampVolume(buf.readFloat()),
-						readOptionalBlockPos(buf)
+						readOptionalBlockPos(buf),
+						buf.readBoolean(),
+						readSpeakerTargets(buf)
 				)
 		);
 
@@ -177,7 +216,10 @@ public final class Mp3Payloads {
 			UUID speakerUuid,
 			UUID streamId,
 			boolean paused,
-			float volume
+			float volume,
+			Optional<BlockPos> boomboxPos,
+			boolean emitFromPlayer,
+			List<SpeakerTarget> speakers
 	) implements CustomPacketPayload {
 		public static final Type<S2CStreamState> TYPE = new Type<>(Mp3PlayerMod.id("s2c_stream_state"));
 		public static final StreamCodec<RegistryFriendlyByteBuf, S2CStreamState> CODEC = StreamCodec.of(
@@ -186,12 +228,18 @@ public final class Mp3Payloads {
 					buf.writeUUID(val.streamId());
 					buf.writeBoolean(val.paused());
 					buf.writeFloat(clampVolume(val.volume()));
+					writeOptionalBlockPos(buf, val.boomboxPos());
+					buf.writeBoolean(val.emitFromPlayer());
+					writeSpeakerTargets(buf, val.speakers());
 				},
 				buf -> new S2CStreamState(
 						buf.readUUID(),
 						buf.readUUID(),
 						buf.readBoolean(),
-						clampVolume(buf.readFloat())
+						clampVolume(buf.readFloat()),
+						readOptionalBlockPos(buf),
+						buf.readBoolean(),
+						readSpeakerTargets(buf)
 				)
 		);
 
@@ -240,6 +288,34 @@ public final class Mp3Payloads {
 
 	private static Optional<BlockPos> readOptionalBlockPos(RegistryFriendlyByteBuf buf) {
 		return buf.readBoolean() ? Optional.of(buf.readBlockPos()) : Optional.empty();
+	}
+
+	private static void writeSpeakerTargets(RegistryFriendlyByteBuf buf, List<SpeakerTarget> speakers) {
+		if (speakers == null || speakers.isEmpty()) {
+			buf.writeVarInt(0);
+			return;
+		}
+		int count = Math.min(MAX_LINKED_SPEAKERS, speakers.size());
+		buf.writeVarInt(count);
+		for (int i = 0; i < count; i++) {
+			SpeakerTarget target = speakers.get(i);
+			buf.writeBlockPos(target.pos());
+			buf.writeFloat(clampVolume(target.volume()));
+		}
+	}
+
+	private static List<SpeakerTarget> readSpeakerTargets(RegistryFriendlyByteBuf buf) {
+		int count = Math.max(0, Math.min(MAX_LINKED_SPEAKERS, buf.readVarInt()));
+		if (count == 0) {
+			return Collections.emptyList();
+		}
+		List<SpeakerTarget> list = new ArrayList<>(count);
+		for (int i = 0; i < count; i++) {
+			BlockPos pos = buf.readBlockPos().immutable();
+			float vol = clampVolume(buf.readFloat());
+			list.add(new SpeakerTarget(pos, vol));
+		}
+		return Collections.unmodifiableList(list);
 	}
 
 	private static String truncate(String s) {

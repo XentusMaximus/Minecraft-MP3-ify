@@ -146,15 +146,9 @@ public final class OpenAlStreamChannel implements AutoCloseable {
 					? AL10.AL_FORMAT_STEREO16
 					: AL10.AL_FORMAT_MONO16;
 
-			short[] dataToUpload = chunk.samples();
-			if (chunk.channels() == 2 && positional3D) {
-				// Downmix stereo to mono on-the-fly if switched to 3D mode
-				short[] mono = new short[dataToUpload.length / 2];
-				for (int i = 0, j = 0; i + 1 < dataToUpload.length; i += 2, j++) {
-					mono[j] = (short) (((int) dataToUpload[i] + (int) dataToUpload[i + 1]) >> 1);
-				}
-				dataToUpload = mono;
-			}
+			short[] dataToUpload = (chunk.channels() == 2 && positional3D)
+					? chunk.monoSamples()
+					: chunk.samples();
 
 			AL10.alBufferData(bufId, alFormat, dataToUpload, chunk.sampleRate());
 			if (AL10.alGetError() == AL10.AL_NO_ERROR) {

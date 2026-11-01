@@ -1,6 +1,6 @@
-# 🎧 MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.2.0`)
+# 🎧 MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.0`)
 
-![Version 1.2.0](https://img.shields.io/badge/Version-1.2.0-a855f7?style=flat-square)
+![Version 1.3.0](https://img.shields.io/badge/Version-1.3.0-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -14,6 +14,10 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ## ✨ Features
 
+- **Linkable 3D Speakers (`mp3player:speaker`) & Speaker Controller (`mp3player:speaker_controller`):**
+  - **Full 16×16×16 Speaker Blocks with Zero Particles:** Placeable directional full-cube studio speakers that emit **no particles** during playback.
+  - **Additional 3D Streams to Cover Large Areas:** Every linked speaker plays the music from its exact block coordinates as an **additional sample-synchronized 3D OpenAL stream** (audible in 3D to both you and all players in Multiplayer / Essential!) — cover entire bases, clubs, arenas, or towns seamlessly.
+  - **Speaker Controller Item (`mp3player:speaker_controller`):** Right-click placed Speaker blocks to link/unlink them, or right-click in the air to open the **Speaker Management & Playback GUI** (featuring **1-click `📡 Scan` within 96 blocks**, per-speaker `ON/OFF` toggle, per-speaker volume `25%–100%`, unlink controls, and full music playback control).
 - **Placeable 3D Boombox Block (`mp3player:boombox`, New in `v1.2.0`):**
   - Place a custom 3D stereo Boombox anywhere in your world — music plays in **true 3D directional sound anchored to the Boombox's exact coordinates** (audible in 3D to **both you and all nearby players** within 56 blocks as you walk around or away from it!).
   - Lights up with a glowing LED equalizer display and spawns musical note particles while playing; stops automatically if broken.
@@ -75,7 +79,23 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 | **Middle** | Note Block | Gold Ingot | Note Block |
 | **Bottom** | Any Planks | Any Planks | Any Planks |
 
-*(Both items are available in the Creative Inventory under **Tools & Utilities**, and the Boombox is also listed under **Functional Blocks**.)*
+### 3. Linkable 3D Speaker (`mp3player:speaker`, crafts `2×`)
+
+| | Column 1 | Column 2 | Column 3 |
+| :--- | :---: | :---: | :---: |
+| **Top** | Any Planks | Any Planks | Any Planks |
+| **Middle** | Iron Ingot | Note Block | Iron Ingot |
+| **Bottom** | Any Planks | Redstone Dust | Any Planks |
+
+### 4. Speaker Controller (`mp3player:speaker_controller`)
+
+| | Column 1 | Column 2 | Column 3 |
+| :--- | :---: | :---: | :---: |
+| **Top** | — | Redstone Torch | — |
+| **Middle** | Iron Ingot | Glass Pane | Iron Ingot |
+| **Bottom** | Copper Ingot | Redstone Dust | Copper Ingot |
+
+*(All items are available in the Creative Inventory under **Tools & Utilities**, and the Boombox, Speaker, and Speaker Controller are also listed under **Functional Blocks**.)*
 
 ---
 

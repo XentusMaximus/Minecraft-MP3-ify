@@ -1,0 +1,25 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "particle": "mp3player:block/speaker_front",
+    "front": "mp3player:block/speaker_front",
+    "back": "mp3player:block/speaker_back",
+    "side": "mp3player:block/speaker_side",
+    "top": "mp3player:block/speaker_top",
+    "bottom": "mp3player:block/speaker_bottom"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": { "uv": [0, 0, 16, 16], "texture": "#front", "cullface": "north" },
+        "south": { "uv": [0, 0, 16, 16], "texture": "#back", "cullface": "south" },
+        "west":  { "uv": [0, 0, 16, 16], "texture": "#side", "cullface": "west" },
+        "east":  { "uv": [0, 0, 16, 16], "texture": "#side", "cullface": "east" },
+        "up":    { "uv": [0, 0, 16, 16], "texture": "#top", "cullface": "up" },
+        "down":  { "uv": [0, 0, 16, 16], "texture": "#bottom", "cullface": "down" }
+      }
+    }
+  ]
+}

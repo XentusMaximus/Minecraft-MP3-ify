@@ -1,6 +1,6 @@
-# 🎧 MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.2.0`)
+# 🎧 MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.0`)
 
-![Version 1.2.0](https://img.shields.io/badge/Version-1.2.0-a855f7?style=flat-square)
+![Version 1.3.0](https://img.shields.io/badge/Version-1.3.0-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -14,6 +14,10 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ## ✨ Features
 
+- **Verlinkbare 3D-Lautsprecher (`mp3player:speaker`) & Lautsprecher-Controller (`mp3player:speaker_controller`):**
+  - **Volle 16×16×16 Lautsprecher-Blöcke ohne Partikel:** Platzierbare, direktionale Studio-Lautsprecher als volle Blöcke, die während der Wiedergabe **keine Partikel** erzeugen.
+  - **Zusätzliche 3D-Streams für große Flächen:** Jeder verknüpfte Lautsprecher strahlt die laufende Musik exakt von seiner eigenen Block-Position als **zusätzlichen synchronen 3D-OpenAL-Stream** ab (hörbar für dich selbst und für alle Mitspieler im Multiplayer / Essential!) — perfekt für große Basen, Städte, Arenen oder Clubs.
+  - **Lautsprecher-Controller (`mp3player:speaker_controller`):** Verknüpfe oder trenne Lautsprecher per Rechtsklick auf den Block oder öffne mit Rechtsklick in die Luft das **Lautsprecher-Verwaltungs- & Wiedergabe-GUI** (inkl. **96-Blöcke-Umgebungsscan `📡 Scannen`**, Einzel-Stummschaltung `AN/AUS`, individueller Lautstärke pro Lautsprecher `25 %–100 %` und voller Musiksteuerung).
 - **Platzierbare 3D-Boombox (`mp3player:boombox`, Neu in `v1.2.0`):**
   - Stelle die 3D-Stereo-Boombox beliebig in deiner Welt auf — die Musik erklingt in **echtem 3D-Richtungsklang exakt von der Position der Boombox** (in 3D hörbar **sowohl für dich selbst als auch für alle Mitspieler** im Umkreis von 56 Blöcken!).
   - Leuchtet während der Wiedergabe mit aktivem LED-Equalizer-Display und Musiknoten-Partikeln; stoppt sofort, wenn der Block abgebaut wird.
@@ -73,7 +77,23 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 | **Mitte** | Notenblock | Goldbarren | Notenblock |
 | **Unten** | Holzbretter | Holzbretter | Holzbretter |
 
-*(Beide Items sind im Creative-Inventar unter **Werkzeuge & Hilfsmittel** zu finden; die Boombox zusätzlich unter **Funktionale Blöcke**.)*
+### 3. Verlinkbarer 3D-Lautsprecher (`mp3player:speaker`, ergibt `2×`)
+
+| | Spalte 1 | Spalte 2 | Spalte 3 |
+| :--- | :---: | :---: | :---: |
+| **Oben** | Holzbretter | Holzbretter | Holzbretter |
+| **Mitte** | Eisenbarren | Notenblock | Eisenbarren |
+| **Unten** | Holzbretter | Redstone | Holzbretter |
+
+### 4. Lautsprecher-Controller (`mp3player:speaker_controller`)
+
+| | Spalte 1 | Spalte 2 | Spalte 3 |
+| :--- | :---: | :---: | :---: |
+| **Oben** | — | Redstone-Fackel | — |
+| **Mitte** | Eisenbarren | Glasscheibe | Eisenbarren |
+| **Unten** | Kupferbarren | Redstone | Kupferbarren |
+
+*(Alle Items sind im Creative-Inventar unter **Werkzeuge & Hilfsmittel** zu finden; Boombox, Lautsprecher und Lautsprecher-Controller zusätzlich unter **Funktionale Blöcke**.)*
 
 ---
 

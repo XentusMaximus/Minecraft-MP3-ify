@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "redstone",
+  "key": {
+    "T": "minecraft:redstone_torch",
+    "I": "minecraft:iron_ingot",
+    "G": "minecraft:glass_pane",
+    "R": "minecraft:redstone",
+    "C": "minecraft:copper_ingot"
+  },
+  "pattern": [
+    " T ",
+    "IGI",
+    "CRC"
+  ],
+  "result": {
+    "id": "mp3player:speaker_controller",
+    "count": 1
+  }
+}

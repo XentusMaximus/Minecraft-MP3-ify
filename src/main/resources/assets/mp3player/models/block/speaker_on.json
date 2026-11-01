@@ -1,0 +1,7 @@
+{
+  "parent": "mp3player:block/speaker",
+  "textures": {
+    "particle": "mp3player:block/speaker_front_on",
+    "front": "mp3player:block/speaker_front_on"
+  }
+}

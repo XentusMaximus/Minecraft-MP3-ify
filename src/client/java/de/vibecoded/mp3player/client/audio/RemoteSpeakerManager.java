@@ -7,9 +7,17 @@ import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStop;
+import de.vibecoded.mp3player.network.Mp3Payloads.SpeakerTarget;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.client.Minecraft;
@@ -18,10 +26,64 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.player.Player;
 
 /**
- * Manages incoming 48 kHz Opus 3D positional audio streams from other players
- * and placed Boomboxes in Multiplayer / Essential worlds (supporting all 6 source audio formats).
+ * Manages incoming 48 kHz Opus 3D positional audio streams from other players,
+ * placed Boomboxes, and linked Speaker networks in Multiplayer / Essential worlds
+ * (supporting all 6 source audio formats).
  */
 public final class RemoteSpeakerManager {
+	private static final double ACTIVE_SPEAKER_RANGE_SQR = 62.0 * 62.0;
+
+	private static final class RemoteSpeakerNode implements AutoCloseable {
+		final BlockPos pos;
+		float volume;
+		final Queue<PcmChunk> inbox = new ArrayDeque<>(24);
+		OpenAlStreamChannel channel;
+
+		RemoteSpeakerNode(BlockPos pos, float volume) {
+			this.pos = pos.immutable();
+			this.volume = volume;
+		}
+
+		void enqueue(PcmChunk chunk) {
+			if (inbox.size() >= 20) {
+				inbox.poll();
+			}
+			inbox.offer(chunk);
+		}
+
+		void pump(boolean paused, float effectiveGain, boolean withinRange) {
+			if (!withinRange || effectiveGain <= 0.0001f) {
+				inbox.clear();
+				if (channel != null) {
+					channel.close();
+					channel = null;
+				}
+				return;
+			}
+			if (channel == null) {
+				channel = new OpenAlStreamChannel(true);
+				channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+			}
+			channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+			channel.pump(inbox, paused, effectiveGain, 3);
+		}
+
+		void updateGainNow(float baseGain) {
+			if (channel != null) {
+				channel.updateGainNow(baseGain * volume);
+			}
+		}
+
+		@Override
+		public void close() {
+			inbox.clear();
+			if (channel != null) {
+				channel.close();
+				channel = null;
+			}
+		}
+	}
+
 	public static final class RemoteStream implements AutoCloseable {
 		private final UUID speakerUuid;
 		private final String speakerName;
@@ -29,7 +91,10 @@ public final class RemoteSpeakerManager {
 		private final String trackTitle;
 		private final RemoteOpusDecodeWorker decodeWorker;
 		private final OpenAlStreamChannel alChannel;
+		private final Map<BlockPos, RemoteSpeakerNode> speakerNodes = new LinkedHashMap<>();
 		private volatile BlockPos boomboxPos;
+		private volatile boolean emitFromPlayer;
+		private volatile List<SpeakerTarget> speakers;
 		private volatile float speakerVolume;
 		private volatile boolean paused;
 		private volatile long lastPacketMs;
@@ -40,7 +105,9 @@ public final class RemoteSpeakerManager {
 				UUID streamId,
 				String trackTitle,
 				float volume,
-				BlockPos boomboxPos
+				BlockPos boomboxPos,
+				boolean emitFromPlayer,
+				List<SpeakerTarget> speakers
 		) {
 			this.speakerUuid = speakerUuid;
 			this.speakerName = speakerName;
@@ -48,6 +115,8 @@ public final class RemoteSpeakerManager {
 			this.trackTitle = trackTitle;
 			this.speakerVolume = volume;
 			this.boomboxPos = boomboxPos != null ? boomboxPos.immutable() : null;
+			this.emitFromPlayer = emitFromPlayer;
+			this.speakers = speakers != null ? List.copyOf(speakers) : Collections.emptyList();
 			this.paused = false;
 			this.lastPacketMs = System.currentTimeMillis();
 			this.decodeWorker = new RemoteOpusDecodeWorker(speakerName);
@@ -78,6 +147,22 @@ public final class RemoteSpeakerManager {
 			return boomboxPos;
 		}
 
+		public List<SpeakerTarget> speakers() {
+			return speakers;
+		}
+
+		boolean hasSpeakerAt(BlockPos pos) {
+			if (pos == null) {
+				return false;
+			}
+			for (SpeakerTarget st : speakers) {
+				if (pos.equals(st.pos())) {
+					return true;
+				}
+			}
+			return false;
+		}
+
 		void pushAudioPacket(byte[] bytes, BlockPos packetBoomboxPos) {
 			this.lastPacketMs = System.currentTimeMillis();
 			if (packetBoomboxPos != null && this.boomboxPos == null) {
@@ -86,16 +171,79 @@ public final class RemoteSpeakerManager {
 			this.decodeWorker.pushPacket(bytes);
 		}
 
-		void updateState(boolean paused, float volume) {
+		void updateState(
+				boolean paused,
+				float volume,
+				BlockPos boomboxPos,
+				boolean emitFromPlayer,
+				List<SpeakerTarget> speakers
+		) {
 			this.paused = paused;
 			this.speakerVolume = volume;
+			this.boomboxPos = boomboxPos != null ? boomboxPos.immutable() : null;
+			this.emitFromPlayer = emitFromPlayer;
+			if (speakers != null) {
+				this.speakers = List.copyOf(speakers);
+			}
 			this.lastPacketMs = System.currentTimeMillis();
+		}
+
+		void onChunkQueued(PcmChunk chunk) {
+			if (speakerNodes.isEmpty()) {
+				return;
+			}
+			for (RemoteSpeakerNode node : speakerNodes.values()) {
+				node.enqueue(chunk);
+			}
+		}
+
+		void syncSpeakerNodes(Minecraft client) {
+			List<SpeakerTarget> targetList = this.speakers;
+			if (targetList.isEmpty()) {
+				if (!speakerNodes.isEmpty()) {
+					for (RemoteSpeakerNode node : speakerNodes.values()) {
+						node.close();
+					}
+					speakerNodes.clear();
+				}
+				return;
+			}
+
+			Set<BlockPos> validPositions = new HashSet<>(targetList.size());
+			for (SpeakerTarget st : targetList) {
+				BlockPos pos = st.pos();
+				if (client.level != null
+						&& client.level.isLoaded(pos)
+						&& !client.level.getBlockState(pos).is(Mp3PlayerMod.SPEAKER_BLOCK)) {
+					continue;
+				}
+				validPositions.add(pos);
+				RemoteSpeakerNode node = speakerNodes.get(pos);
+				if (node == null) {
+					speakerNodes.put(pos, new RemoteSpeakerNode(pos, st.volume()));
+				} else {
+					node.volume = st.volume();
+				}
+			}
+
+			Iterator<Map.Entry<BlockPos, RemoteSpeakerNode>> it = speakerNodes.entrySet().iterator();
+			while (it.hasNext()) {
+				Map.Entry<BlockPos, RemoteSpeakerNode> entry = it.next();
+				if (!validPositions.contains(entry.getKey())) {
+					entry.getValue().close();
+					it.remove();
+				}
+			}
 		}
 
 		@Override
 		public void close() {
 			decodeWorker.close();
 			alChannel.close();
+			for (RemoteSpeakerNode node : speakerNodes.values()) {
+				node.close();
+			}
+			speakerNodes.clear();
 		}
 	}
 
@@ -126,6 +274,18 @@ public final class RemoteSpeakerManager {
 		return null;
 	}
 
+	public RemoteStream findStreamAtSpeaker(BlockPos pos) {
+		if (pos == null) {
+			return null;
+		}
+		for (RemoteStream stream : activeStreams.values()) {
+			if (stream.hasSpeakerAt(pos)) {
+				return stream;
+			}
+		}
+		return null;
+	}
+
 	public void onStreamStart(S2CStreamStart payload) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.player != null && mc.player.getUUID().equals(payload.speakerUuid())) {
@@ -142,7 +302,9 @@ public final class RemoteSpeakerManager {
 				payload.streamId(),
 				payload.trackTitle(),
 				payload.volume(),
-				boomboxPos
+				boomboxPos,
+				payload.emitFromPlayer(),
+				payload.speakers()
 		);
 		activeStreams.put(payload.speakerUuid(), stream);
 	}
@@ -158,7 +320,16 @@ public final class RemoteSpeakerManager {
 			if (stream != null) {
 				stream.close();
 			}
-			stream = new RemoteStream(payload.speakerUuid(), "Player", payload.streamId(), "3D-Stream", 0.8f, boomboxPos);
+			stream = new RemoteStream(
+					payload.speakerUuid(),
+					"Player",
+					payload.streamId(),
+					"3D-Stream",
+					0.8f,
+					boomboxPos,
+					boomboxPos == null,
+					Collections.emptyList()
+			);
 			activeStreams.put(payload.speakerUuid(), stream);
 		}
 		stream.pushAudioPacket(payload.mp3Frames(), boomboxPos);
@@ -167,7 +338,14 @@ public final class RemoteSpeakerManager {
 	public void onStreamState(S2CStreamState payload) {
 		RemoteStream stream = activeStreams.get(payload.speakerUuid());
 		if (stream != null && stream.streamId.equals(payload.streamId())) {
-			stream.updateState(payload.paused(), payload.volume());
+			BlockPos boomboxPos = payload.boomboxPos() != null ? payload.boomboxPos().orElse(null) : null;
+			stream.updateState(
+					payload.paused(),
+					payload.volume(),
+					boomboxPos,
+					payload.emitFromPlayer(),
+					payload.speakers()
+			);
 		}
 	}
 
@@ -186,8 +364,12 @@ public final class RemoteSpeakerManager {
 		float masterVol = client.options.getSoundSourceVolume(SoundSource.MASTER);
 		float optionsVol = config.optionsVolume();
 		for (RemoteStream stream : activeStreams.values()) {
-			float effectiveGain = config.muteOthers() ? 0.0f : (stream.speakerVolume * optionsVol * masterVol);
-			stream.alChannel.updateGainNow(effectiveGain);
+			float baseGain = config.muteOthers() ? 0.0f : (stream.speakerVolume * optionsVol * masterVol);
+			boolean primaryAudible = stream.boomboxPos != null || stream.emitFromPlayer;
+			stream.alChannel.updateGainNow(primaryAudible ? baseGain : 0.0f);
+			for (RemoteSpeakerNode node : stream.speakerNodes.values()) {
+				node.updateGainNow(baseGain);
+			}
 		}
 	}
 
@@ -216,40 +398,56 @@ public final class RemoteSpeakerManager {
 				continue;
 			}
 
+			stream.syncSpeakerNodes(client);
+
+			float baseGain = config.muteOthers() ? 0.0f : (stream.speakerVolume * optionsVol * masterVol);
+			float primaryGain = 0.0f;
+
 			BlockPos bPos = stream.boomboxPos;
 			if (bPos != null) {
 				if (client.level != null
 						&& client.level.isLoaded(bPos)
 						&& !client.level.getBlockState(bPos).is(Mp3PlayerMod.BOOMBOX_BLOCK)) {
-					it.remove();
-					stream.close();
-					continue;
+					if (stream.speakerNodes.isEmpty()) {
+						it.remove();
+						stream.close();
+						continue;
+					}
+					stream.boomboxPos = null;
+				} else {
+					stream.alChannel.setWorldPosition(
+							bPos.getX() + 0.5,
+							bPos.getY() + 0.5,
+							bPos.getZ() + 0.5
+					);
+					primaryGain = baseGain;
 				}
-				stream.alChannel.setWorldPosition(
-						bPos.getX() + 0.5,
-						bPos.getY() + 0.5,
-						bPos.getZ() + 0.5
-				);
-			} else {
+			} else if (stream.emitFromPlayer) {
 				Player speakerEntity = findPlayer(client, stream.speakerUuid);
-				if (speakerEntity == null) {
-					stream.alChannel.pump(stream.decodeWorker.outputQueue(), stream.paused, 0.0f, 3);
-					continue;
+				if (speakerEntity != null) {
+					stream.alChannel.setWorldPosition(
+							speakerEntity.getX(),
+							speakerEntity.getY() + 1.15,
+							speakerEntity.getZ()
+					);
+					primaryGain = baseGain;
 				}
-				stream.alChannel.setWorldPosition(
-						speakerEntity.getX(),
-						speakerEntity.getY() + 1.15,
-						speakerEntity.getZ()
-				);
 			}
 
-			float effectiveGain = config.muteOthers() ? 0.0f : (stream.speakerVolume * optionsVol * masterVol);
 			boolean finished = stream.alChannel.pump(
 					stream.decodeWorker.outputQueue(),
 					stream.paused,
-					effectiveGain,
-					3
+					primaryGain,
+					3,
+					stream::onChunkQueued
 			);
+
+			for (RemoteSpeakerNode node : stream.speakerNodes.values()) {
+				boolean inRange = client.player != null
+						&& node.pos.distToCenterSqr(client.player.position()) <= ACTIVE_SPEAKER_RANGE_SQR;
+				node.pump(stream.paused, baseGain * node.volume, inRange);
+			}
+
 			if (finished) {
 				it.remove();
 				stream.close();

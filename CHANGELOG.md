@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-11-01
+
+### Added
+- **Linkable Full-Block 3D Speakers (`mp3player:speaker`)**:
+  - Full `16×16×16` solid directional block (`FACING`, `PLAYING` active cabinet texture) that emits **zero particles** during playback.
+  - Streams music from each linked speaker's block position (`x + 0.5, y + 0.5, z + 0.5`) as an **additional synchronized 3D OpenAL stream** to cover large areas in Singleplayer, LAN, Essential World Hosting, and Dedicated Fabric Servers.
+- **Speaker Controller Item (`mp3player:speaker_controller`) & Speaker Management GUI**:
+  - Right-click any placed `Speaker` block with the `Speaker Controller` to link or unlink it in real time (even mid-song).
+  - Right-click in the air to open the **Speaker Management & Playback GUI** (`🔊` tab), featuring a 96-block `📡 Scan` button, master speaker stream toggle, per-speaker `ON/OFF` mute toggle, per-speaker volume multiplier (`25%` / `50%` / `75%` / `100%`), unlink button, and full playback transport controls.
+  - `Shift + Right-Click` in the air with the `Speaker Controller` (or on a `Speaker` block) for instant Play/Pause on the speaker network.
+
+---
+
 ## [1.2.0] - 2026-10-30
 
 ### Added

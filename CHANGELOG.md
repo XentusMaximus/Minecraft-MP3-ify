@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-11-01
+
+### Changed
+- **Extended 3D Speaker Range (`±32×32×32`)**:
+  - Increased each linked `Speaker` block's 3D OpenAL reference distance (`18m` full-power core) and max distance (`76m` smooth linear attenuation, `80m` server relay radius) to cover a full `±32` block area in `X, Y, Z` (including 3D corners) with strong, clear spatial sound.
+- **Session-Scoped Linked Speaker Connections**:
+  - Automatically resets and deletes all linked speaker connections on server/world join (`ClientPlayConnectionEvents.JOIN`) and leave/disconnect (`ClientPlayConnectionEvents.DISCONNECT`), keeping the Linked Speaker UI clean across worlds and servers.
+
+### Fixed
+- **Sample-Accurate Speaker Synchronization When Linking During Playback**:
+  - Newly linked or enabled speakers during active playback now clone the master `OpenAlStreamChannel`'s active buffer queue and immediately snap their hardware `AL_SAMPLE_OFFSET` cursor to match the master stream (with continuous `< 4ms` drift correction), eliminating echo/desync between speakers linked at different times.
+
+---
+
 ## [1.3.0] - 2026-11-01
 
 ### Added

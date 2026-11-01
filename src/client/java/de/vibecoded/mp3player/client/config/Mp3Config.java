@@ -163,7 +163,8 @@ public final class Mp3Config {
 			} catch (IllegalArgumentException ignored) {
 				this.loopMode = LoopMode.OFF;
 			}
-			parseLinkedSpeakers(props.getProperty("linkedSpeakers", ""));
+			// Linked speakers are strictly per-session and reset on server join/leave
+			this.linkedSpeakers.clear();
 		} catch (Exception e) {
 			Mp3PlayerMod.LOGGER.warn("Failed to load mp3player.properties, using defaults", e);
 		}
@@ -178,7 +179,6 @@ public final class Mp3Config {
 		props.setProperty("loopMode", loopMode.name());
 		props.setProperty("muteOthers", Boolean.toString(muteOthers));
 		props.setProperty("linkedSpeakersEnabled", Boolean.toString(linkedSpeakersEnabled));
-		props.setProperty("linkedSpeakers", serializeLinkedSpeakers());
 
 		try {
 			Files.createDirectories(configFile.getParent());
@@ -187,73 +187,6 @@ public final class Mp3Config {
 			}
 		} catch (IOException e) {
 			Mp3PlayerMod.LOGGER.warn("Failed to save mp3player.properties", e);
-		}
-	}
-
-	private String serializeLinkedSpeakers() {
-		if (linkedSpeakers.isEmpty()) {
-			return "";
-		}
-		StringBuilder sb = new StringBuilder();
-		for (int i = 0; i < linkedSpeakers.size(); i++) {
-			LinkedSpeaker ls = linkedSpeakers.get(i);
-			if (i > 0) {
-				sb.append(';');
-			}
-			sb.append(ls.dimension().identifier().toString())
-					.append('@')
-					.append(ls.pos().getX()).append(',').append(ls.pos().getY()).append(',').append(ls.pos().getZ())
-					.append('@')
-					.append(ls.enabled())
-					.append('@')
-					.append(ls.volume());
-		}
-		return sb.toString();
-	}
-
-	private void parseLinkedSpeakers(String raw) {
-		linkedSpeakers.clear();
-		if (raw == null || raw.isBlank()) {
-			return;
-		}
-		String[] entries = raw.split(";");
-		for (String entry : entries) {
-			if (entry.isBlank()) {
-				continue;
-			}
-			try {
-				String[] parts = entry.trim().split("@");
-				if (parts.length < 2) {
-					continue;
-				}
-				Identifier dimId = Identifier.tryParse(parts[0]);
-				if (dimId == null) {
-					continue;
-				}
-				ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, dimId);
-				String[] coords = parts[1].split(",");
-				if (coords.length != 3) {
-					continue;
-				}
-				int x = Integer.parseInt(coords[0].trim());
-				int y = Integer.parseInt(coords[1].trim());
-				int z = Integer.parseInt(coords[2].trim());
-				boolean enabled = parts.length < 3 || Boolean.parseBoolean(parts[2].trim());
-				float vol = parts.length >= 4 ? clamp01(Float.parseFloat(parts[3].trim())) : 1.0f;
-				BlockPos pos = new BlockPos(x, y, z);
-
-				boolean duplicate = false;
-				for (LinkedSpeaker existing : linkedSpeakers) {
-					if (existing.dimension().equals(dimKey) && existing.pos().equals(pos)) {
-						duplicate = true;
-						break;
-					}
-				}
-				if (!duplicate && linkedSpeakers.size() < Mp3Payloads.MAX_LINKED_SPEAKERS) {
-					linkedSpeakers.add(new LinkedSpeaker(dimKey, pos, enabled, vol));
-				}
-			} catch (Exception ignored) {
-			}
 		}
 	}
 

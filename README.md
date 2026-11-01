@@ -1,6 +1,6 @@
-# 🎧 MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.0`)
+# 🎧 MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.1`)
 
-![Version 1.3.0](https://img.shields.io/badge/Version-1.3.0-a855f7?style=flat-square)
+![Version 1.3.1](https://img.shields.io/badge/Version-1.3.1-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -16,7 +16,7 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 - **Linkable 3D Speakers (`mp3player:speaker`) & Speaker Controller (`mp3player:speaker_controller`):**
   - **Full 16×16×16 Speaker Blocks with Zero Particles:** Placeable directional full-cube studio speakers that emit **no particles** during playback.
-  - **Additional 3D Streams to Cover Large Areas:** Every linked speaker plays the music from its exact block coordinates as an **additional sample-synchronized 3D OpenAL stream** (audible in 3D to both you and all players in Multiplayer / Essential!) — cover entire bases, clubs, arenas, or towns seamlessly.
+  - **Extended `32×32×32` (`±32` in X, Y, Z) 3D Sound Range & Sample-Accurate Sync:** Every linked speaker plays the music from its exact block coordinates as an **additional sample-synchronized 3D OpenAL stream** (`18m` full-power core, `±32×32×32` coverage up to `76m` max distance / `80m` server relay radius) — audible in 3D to both you and all players in Multiplayer / Essential! Speakers linked mid-song instantly synchronize to the exact active sample frame without echo or delay, and linked speaker connections reset automatically on server join/leave.
   - **Speaker Controller Item (`mp3player:speaker_controller`):** Right-click placed Speaker blocks to link/unlink them, or right-click in the air to open the **Speaker Management & Playback GUI** (featuring **1-click `📡 Scan` within 96 blocks**, per-speaker `ON/OFF` toggle, per-speaker volume `25%–100%`, unlink controls, and full music playback control).
 - **Placeable 3D Boombox Block (`mp3player:boombox`, New in `v1.2.0`):**
   - Place a custom 3D stereo Boombox anywhere in your world — music plays in **true 3D directional sound anchored to the Boombox's exact coordinates** (audible in 3D to **both you and all nearby players** within 56 blocks as you walk around or away from it!).
@@ -52,8 +52,8 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 - **Java:** `25+`
 
 ### Getting Started
-1. Drop `mp3player-1.2.0.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
-   > 💡 **Essential World Hosting & Multiplayer Note:** To use **🔊 3D Speaker Mode** or a placed **📻 Boombox** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.2.0.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
+1. Drop `mp3player-1.3.1.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
+   > 💡 **Essential World Hosting & Multiplayer Note:** To use **🔊 3D Speaker Mode**, a placed **📻 Boombox**, or **🔊 Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.1.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
 2. **Add Your Own Audio Files (3 Ways):**
    - 📂 **In-Game Button:** Open the MP3 Player or Boombox → Click **"Folder"** *(automatically opens `<minecraft-instance>/mp3s/` in your file manager)*.
    - 🖱️ **Drag & Drop:** Drag `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, or `.ogg` files (or folders) directly onto the open player GUI inside Minecraft.
@@ -107,7 +107,10 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 | **Shift + Right-Click** *(holding MP3 Player)* | Quick **Play / Pause** toggle |
 | **Right-Click** *(on placed Boombox)* | Open the **Boombox GUI** (plays 3D sound from that block) |
 | **Shift + Right-Click** *(on placed Boombox, empty hand)* | Quick **Play / Pause** on that Boombox |
-| **`M` Key** *(configurable in Controls)* | Open/close the GUI *(requires MP3 Player or Boombox in inventory, active playback, or Creative/Spectator)* |
+| **Right-Click** *(on Speaker Block with Speaker Controller)* | **Link / Unlink** that Speaker block (`±32×32×32` 3D range) |
+| **Right-Click in Air** *(holding Speaker Controller)* | Open the **Speaker Management & Playback GUI** (`96`-block `📡 Scan`, per-speaker volume & mute) |
+| **Shift + Right-Click** *(holding Speaker Controller)* | Quick **Play / Pause** across linked Speakers |
+| **`M` Key** *(configurable in Controls)* | Open/close the GUI *(requires MP3 Player, Speaker Controller, Boombox, or Speaker in inventory, active playback, or Creative/Spectator)* |
 | **Options → Music & Sounds... → `MP3 & Boombox`** | Global music volume slider (`OFF` – `100%`) independent of Master Volume |
 | **`Spacebar`** *(inside GUI)* | Play / Pause |
 | **`←` / `→` Arrow Keys** *(inside GUI)* | Seek `-5s` / `+5s` |
@@ -130,20 +133,20 @@ All user preferences (Minecraft Options music volume, deck volume, audio mode, s
 src/
 ├── main/
 │   ├── java/de/vibecoded/mp3player/
-│   │   ├── Mp3PlayerMod.java            # Item, Boombox Block, Creative Tab & Payload registration
-│   │   ├── block/BoomboxBlock.java      # Placeable directional 3D Boombox block
-│   │   ├── item/                        # Mp3PlayerItem & BoomboxItem interactions & tooltips
+│   │   ├── Mp3PlayerMod.java            # Item, Boombox & Speaker Block, Creative Tab & Payload registration
+│   │   ├── block/                       # BoomboxBlock & full-cube linkable SpeakerBlock (no particles)
+│   │   ├── item/                        # Mp3PlayerItem, BoomboxItem, SpeakerItem & SpeakerControllerItem
 │   │   ├── mp3/                         # Multi-format metadata parsers, Ogg demuxer & WAV/MP3 headers
 │   │   └── network/                     # <= 4 KB CustomPayloads & 3D Speaker/Boombox server relay
 │   └── resources/                       # fabric.mod.json, models, recipes, loot_table, textures & lang
 └── client/
     └── java/de/vibecoded/mp3player/client/
         ├── Mp3PlayerClient.java         # Client entrypoint, keymapping & lifecycle hooks
-        ├── audio/                       # OpenAL channel, 48 kHz Opus 3D codec & format decoders
+        ├── audio/                       # Sample-synced OpenAL channels, 48 kHz Opus 3D codec & decoders
         │   └── decoder/                 # Streaming PCM + seek decoders (MP3, M4A, OPUS, WAV, FLAC, OGG)
         ├── config/Mp3Config.java        # Persistent player & Sound Options preferences
         ├── debug/                       # Client-side Netty timeout simulation helper (/mp3timeout)
-        ├── gui/                         # Mp3PlayerScreen & 0-Mixin SoundOptionsInjector
+        ├── gui/                         # Mp3PlayerScreen (Tracks & Speakers tabs) & SoundOptionsInjector
         └── library/Mp3LibraryManager.java
 ```
 
@@ -154,7 +157,7 @@ Requires **JDK 25**:
 .\gradlew.bat build
 ```
 
-The compiled mod JAR will be output to `build/libs/mp3player-1.2.0.jar`.
+The compiled mod JAR will be output to `build/libs/mp3player-1.3.1.jar`.
 
 ---
 

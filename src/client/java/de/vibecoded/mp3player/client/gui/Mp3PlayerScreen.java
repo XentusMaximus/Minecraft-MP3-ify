@@ -920,7 +920,7 @@ public class Mp3PlayerScreen extends Screen {
 			if (!ls.enabled() || !globalStreamsOn) {
 				statusKey = "screen.mp3player.speakers.status.muted";
 			} else if (isStreaming) {
-				statusKey = dist <= 54.0
+				statusKey = dist <= 76.0
 						? "screen.mp3player.speakers.status.streaming"
 						: "screen.mp3player.speakers.status.far";
 			} else {

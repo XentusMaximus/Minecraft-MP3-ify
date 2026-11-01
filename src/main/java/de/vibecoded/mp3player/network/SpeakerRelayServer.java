@@ -41,7 +41,7 @@ import net.minecraft.world.phys.Vec3;
  * (Singleplayer / Essential World Host / LAN) as well as Dedicated Fabric Servers.
  */
 public final class SpeakerRelayServer {
-	public static final double HEARING_RADIUS = 56.0;
+	public static final double HEARING_RADIUS = 80.0;
 	private static final double HEARING_RADIUS_SQR = HEARING_RADIUS * HEARING_RADIUS;
 	private static final double DISCONNECT_RADIUS_SQR = (HEARING_RADIUS + 8.0) * (HEARING_RADIUS + 8.0);
 	private static final double MAX_BOOMBOX_CONTROL_SQR = 256.0 * 256.0;

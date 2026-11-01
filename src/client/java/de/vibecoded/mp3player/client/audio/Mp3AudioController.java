@@ -50,8 +50,9 @@ import net.minecraft.world.level.chunk.LevelChunkSection;
  */
 public final class Mp3AudioController {
 	public static final int DEFAULT_SPEAKER_SCAN_RADIUS = 96;
+	public static final double SPEAKER_RANGE_XYZ = 32.0;
+	public static final double ACTIVE_SPEAKER_RANGE_SQR = 80.0 * 80.0;
 	private static final int MAX_CHUNKS_PER_TICK = 5;
-	private static final double ACTIVE_SPEAKER_RANGE_SQR = 62.0 * 62.0;
 
 	private static final class LocalSpeakerNode implements AutoCloseable {
 		final BlockPos pos;
@@ -71,8 +72,8 @@ public final class Mp3AudioController {
 			inbox.offer(chunk);
 		}
 
-		void pump(boolean paused, float effectiveGain, boolean withinRange) {
-			if (!withinRange || effectiveGain <= 0.0001f) {
+		void pump(OpenAlStreamChannel master, boolean paused, float effectiveGain, boolean withinRange) {
+			if (master == null || !withinRange || effectiveGain <= 0.0001f) {
 				inbox.clear();
 				if (channel != null) {
 					channel.close();
@@ -81,11 +82,12 @@ public final class Mp3AudioController {
 				return;
 			}
 			if (channel == null) {
-				channel = new OpenAlStreamChannel(true);
+				channel = OpenAlStreamChannel.createSpeakerChannel();
+				channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+			} else {
 				channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
 			}
-			channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-			channel.pump(inbox, paused, effectiveGain, 2);
+			channel.pumpFollower(master, inbox, paused, effectiveGain);
 		}
 
 		void updateGainNow(float baseGain) {
@@ -285,6 +287,9 @@ public final class Mp3AudioController {
 		if (dimension == null || pos == null) {
 			return false;
 		}
+		if (!config.linkedSpeakersEnabled()) {
+			config.setLinkedSpeakersEnabled(true);
+		}
 		List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
 		for (int i = 0; i < modifiable.size(); i++) {
 			LinkedSpeaker existing = modifiable.get(i);
@@ -293,6 +298,7 @@ public final class Mp3AudioController {
 					modifiable.set(i, new LinkedSpeaker(dimension, pos, true, existing.volume()));
 					config.setLinkedSpeakers(modifiable);
 					config.save();
+					syncSpeakersDuringPlaybackNow();
 					syncNetworkStreamWithCurrentTargets();
 				}
 				return true;
@@ -304,6 +310,7 @@ public final class Mp3AudioController {
 		modifiable.add(new LinkedSpeaker(dimension, pos.immutable(), true, 1.0f));
 		config.setLinkedSpeakers(modifiable);
 		config.save();
+		syncSpeakersDuringPlaybackNow();
 		syncNetworkStreamWithCurrentTargets();
 		return true;
 	}
@@ -321,6 +328,7 @@ public final class Mp3AudioController {
 			if (node != null) {
 				node.close();
 			}
+			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
 		}
 		return removed;
@@ -348,7 +356,10 @@ public final class Mp3AudioController {
 				if (node != null) {
 					node.close();
 				}
+			} else {
+				syncSpeakersDuringPlaybackNow();
 			}
+			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
 		}
 	}
@@ -399,7 +410,22 @@ public final class Mp3AudioController {
 			config.setLinkedSpeakers(modifiable);
 			config.save();
 			closeAllSpeakerNodes();
+			if (speakerSystemMode) {
+				speakerSystemMode = false;
+			}
+			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
+		}
+	}
+
+	/**
+	 * Resets and deletes all linked speaker connections (invoked on server/world join and leave).
+	 */
+	public void resetLinkedSpeakers() {
+		closeAllSpeakerNodes();
+		config.setLinkedSpeakers(Collections.emptyList());
+		if (speakerSystemMode) {
+			speakerSystemMode = false;
 		}
 	}
 
@@ -414,6 +440,8 @@ public final class Mp3AudioController {
 			if (speakerSystemMode) {
 				speakerSystemMode = false;
 			}
+		} else {
+			syncSpeakersDuringPlaybackNow();
 		}
 		refreshImmediateGain(Minecraft.getInstance());
 		syncNetworkStreamWithCurrentTargets();
@@ -517,11 +545,29 @@ public final class Mp3AudioController {
 		}
 
 		if (added > 0) {
+			if (!config.linkedSpeakersEnabled()) {
+				config.setLinkedSpeakersEnabled(true);
+			}
 			config.setLinkedSpeakers(modifiable);
 			config.save();
+			syncSpeakersDuringPlaybackNow();
 			syncNetworkStreamWithCurrentTargets();
 		}
 		return added;
+	}
+
+	private void syncSpeakersDuringPlaybackNow() {
+		Minecraft mc = Minecraft.getInstance();
+		if (mc == null || alChannel == null || decodeWorker == null) {
+			return;
+		}
+		syncLocalSpeakerNodes(mc);
+		float baseGain = computeBaseGain(mc);
+		for (LocalSpeakerNode node : speakerNodes.values()) {
+			boolean inRange = mc.player != null
+					&& node.pos.distToCenterSqr(mc.player.position()) <= ACTIVE_SPEAKER_RANGE_SQR;
+			node.pump(alChannel, paused, baseGain * node.volume, inRange);
+		}
 	}
 
 	public void playTrackOnSpeakers(Mp3TrackInfo track) {
@@ -1117,7 +1163,7 @@ public final class Mp3AudioController {
 			for (LocalSpeakerNode node : speakerNodes.values()) {
 				boolean inRange = client.player != null
 						&& node.pos.distToCenterSqr(client.player.position()) <= ACTIVE_SPEAKER_RANGE_SQR;
-				node.pump(paused, baseGain * node.volume, inRange);
+				node.pump(alChannel, paused, baseGain * node.volume, inRange);
 			}
 		}
 
@@ -1161,6 +1207,7 @@ public final class Mp3AudioController {
 
 	public void onClientDisconnect() {
 		stopLocalAndNetwork(false);
+		resetLinkedSpeakers();
 		currentTrack = null;
 		paused = false;
 		seekBaseSeconds = 0.0;

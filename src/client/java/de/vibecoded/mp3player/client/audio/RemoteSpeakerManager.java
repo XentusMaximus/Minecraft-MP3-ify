@@ -31,7 +31,7 @@ import net.minecraft.world.entity.player.Player;
  * (supporting all 6 source audio formats).
  */
 public final class RemoteSpeakerManager {
-	private static final double ACTIVE_SPEAKER_RANGE_SQR = 62.0 * 62.0;
+	private static final double ACTIVE_SPEAKER_RANGE_SQR = 80.0 * 80.0;
 
 	private static final class RemoteSpeakerNode implements AutoCloseable {
 		final BlockPos pos;
@@ -51,8 +51,8 @@ public final class RemoteSpeakerManager {
 			inbox.offer(chunk);
 		}
 
-		void pump(boolean paused, float effectiveGain, boolean withinRange) {
-			if (!withinRange || effectiveGain <= 0.0001f) {
+		void pump(OpenAlStreamChannel master, boolean paused, float effectiveGain, boolean withinRange) {
+			if (master == null || !withinRange || effectiveGain <= 0.0001f) {
 				inbox.clear();
 				if (channel != null) {
 					channel.close();
@@ -61,11 +61,12 @@ public final class RemoteSpeakerManager {
 				return;
 			}
 			if (channel == null) {
-				channel = new OpenAlStreamChannel(true);
+				channel = OpenAlStreamChannel.createSpeakerChannel();
+				channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+			} else {
 				channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
 			}
-			channel.setWorldPosition(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-			channel.pump(inbox, paused, effectiveGain, 3);
+			channel.pumpFollower(master, inbox, paused, effectiveGain);
 		}
 
 		void updateGainNow(float baseGain) {
@@ -445,7 +446,7 @@ public final class RemoteSpeakerManager {
 			for (RemoteSpeakerNode node : stream.speakerNodes.values()) {
 				boolean inRange = client.player != null
 						&& node.pos.distToCenterSqr(client.player.position()) <= ACTIVE_SPEAKER_RANGE_SQR;
-				node.pump(stream.paused, baseGain * node.volume, inRange);
+				node.pump(stream.alChannel, stream.paused, baseGain * node.volume, inRange);
 			}
 
 			if (finished) {

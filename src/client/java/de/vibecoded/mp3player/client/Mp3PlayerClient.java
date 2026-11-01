@@ -155,6 +155,15 @@ public class Mp3PlayerClient implements ClientModInitializer {
 
 		TimeoutSimulationHelper.registerCommands();
 
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+			Runnable onJoin = () -> audioController.resetLinkedSpeakers();
+			if (client.isSameThread()) {
+				onJoin.run();
+			} else {
+				client.execute(onJoin);
+			}
+		});
+
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			Runnable cleanup = () -> {
 				TimeoutSimulationHelper.reset();
@@ -171,6 +180,7 @@ public class Mp3PlayerClient implements ClientModInitializer {
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			TimeoutSimulationHelper.reset();
 			audioController.stop();
+			audioController.resetLinkedSpeakers();
 			remoteSpeakerManager.stopAll();
 			config.save();
 		});

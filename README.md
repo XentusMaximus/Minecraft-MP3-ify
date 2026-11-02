@@ -32,9 +32,9 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
   - **`.flac`** — Lossless 8–32 bit FLAC (`VorbisComment` metadata & `SeekTable` / frame-sync seeking)
   - **`.ogg`** — Ogg Vorbis & Ogg Opus (`VorbisComment` metadata & O(1) page seeking)
 - **Three Live-Switchable Audio Output Modes:**
-  - 🎧 **Headphones (Local):** Full stereo playback at native sample rate exclusively for yourself (`0` network traffic — works on any server, including vanilla servers).
-  - 🔊 **Handheld 3D Speaker (Multiplayer & Essential):** Positional 3D audio that follows your character as you walk around.
-  - 📻 **Placed Boombox (Stationary 3D Block):** Positional 3D audio anchored to the placed Boombox block in the world.
+  - **Headphones (Local):** Full stereo playback at native sample rate exclusively for yourself (`0` network traffic — works on any server, including vanilla servers).
+  - **Handheld 3D Speaker (Multiplayer & Essential):** Positional 3D audio that follows your character as you walk around.
+  - **Placed Boombox (Stationary 3D Block):** Positional 3D audio anchored to the placed Boombox block in the world.
 - **100% Essential Mod Compatible (48 kHz Opus 3D Relay):** Streams live `48 kHz` Opus audio (`~8 KB/s`) in compact `<= 4 KB` packets over Minecraft's standard play networking channel — **works with every supported audio format**, requires **no extra UDP port forwarding**, avoids oversized-payload kicks, supports **instant headerless mid-song late-joining**, and uses **0 Mixins** (conflict-free with Essential, Sodium, Iris, Lithium, etc.).
 - **Modern Hi-Fi In-Game GUI:**
   - Live search by song title, artist, filename, or **format badge** (`FLAC`, `OPUS`, `M4A`, `WAV`, `OGG`, `MP3`)

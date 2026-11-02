@@ -12,7 +12,7 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ---
 
-## ✨ Features
+## Features
 
 - **Linkable 3D Speakers (`mp3player:speaker`) & Speaker Controller (`mp3player:speaker_controller`):**
   - **Full 16×16×16 Speaker Blocks with Zero Particles:** Placeable directional full-cube studio speakers that emit **no particles** during playback.
@@ -43,7 +43,7 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ---
 
-## 📥 Installation & Setup
+## Installation & Setup
 
 ### Requirements
 - **Minecraft:** `26.2`
@@ -53,15 +53,15 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ### Getting Started
 1. Drop `mp3player-1.3.1.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
-   > 💡 **Essential World Hosting & Multiplayer Note:** To use **🔊 3D Speaker Mode**, a placed **📻 Boombox**, or **🔊 Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.1.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
+   > **Essential World Hosting & Multiplayer Note:** To use **🔊 3D Speaker Mode**, a placed **📻 Boombox**, or **🔊 Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.1.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
 2. **Add Your Own Audio Files (3 Ways):**
-   - 📂 **In-Game Button:** Open the MP3 Player or Boombox → Click **"Folder"** *(automatically opens `<minecraft-instance>/mp3s/` in your file manager)*.
-   - 🖱️ **Drag & Drop:** Drag `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, or `.ogg` files (or folders) directly onto the open player GUI inside Minecraft.
-   - 📁 **Manual Copy:** Place your audio files inside `<minecraft-instance>/mp3s/` *(subfolders are scanned automatically)*.
+   - **In-Game Button:** Open the MP3 Player or Boombox → Click **"Folder"** *(automatically opens `<minecraft-instance>/mp3s/` in your file manager)*.
+   - **Drag & Drop:** Drag `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, or `.ogg` files (or folders) directly onto the open player GUI inside Minecraft.
+   - **Manual Copy:** Place your audio files inside `<minecraft-instance>/mp3s/` *(subfolders are scanned automatically)*.
 
 ---
 
-## 🛠️ Crafting Recipes
+## Crafting Recipes
 
 ### 1. Handheld MP3 Player (`mp3player:mp3_player`)
 
@@ -99,7 +99,7 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ---
 
-## 🎮 Controls & Shortcuts
+## Controls & Shortcuts
 
 | Action | Function |
 | :--- | :--- |
@@ -117,7 +117,7 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 All user preferences (Minecraft Options music volume, deck volume, audio mode, shuffle, loop mode, mute others) are saved automatically to `config/mp3player.properties`.
 
-### 🧪 Debug / Timeout Testing Helper (Client Command)
+### Debug / Timeout Testing Helper (Client Command)
 
 | Command | Effect |
 | :--- | :--- |
@@ -127,7 +127,7 @@ All user preferences (Minecraft Options music volume, deck volume, audio mode, s
 
 ---
 
-## 🏗️ Project Structure & Building from Source
+## Project Structure & Building from Source
 
 ```text
 src/
@@ -161,7 +161,7 @@ The compiled mod JAR will be output to `build/libs/mp3player-1.3.1.jar`.
 
 ---
 
-## 📄 License & Author
+## License & Author
 
 - **Author:** IceKaffee
 - **License:** MIT

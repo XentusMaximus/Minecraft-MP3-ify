@@ -51,7 +51,7 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ### Einrichtung
 1. Lege die gebaute `mp3player-1.3.1.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
-   > **Hinweis für Essential World Hosting & Server:** Für den **🔊 3D-Lautsprecher**, die **📻 Boombox** und **🔊 verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.1.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
+   > **Hinweis für Essential World Hosting & Server:** Für den **3D-Lautsprecher**, die **Boombox** und **verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.1.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
 2. **Eigene Audiodateien hinzufügen (3 Möglichkeiten):**
    - **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
    - **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.

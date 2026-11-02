@@ -32,9 +32,9 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
   - **`.flac`** — Lossless 8–32 Bit FLAC (`VorbisComment`-Metadaten & `SeekTable`-/Frame-Sync-Seeking)
   - **`.ogg`** — Ogg Vorbis & Ogg Opus (`VorbisComment`-Metadaten & O(1)-Seeking)
 - **Drei live umschaltbare Audio-Ausgabemodi:**
-  - 🎧 **Kopfhörer (Lokal):** Voller Stereo-Sound in nativer Sample-Rate nur für dich selbst (`0` Netzwerk-Traffic, funktioniert auch auf Vanilla-/Fremdservern).
-  - 🔊 **Tragbarer 3D-Lautsprecher (Multiplayer & Essential):** 3D-Richtungsklang, der deinem Charakter beim Laufen folgt.
-  - 📻 **Platzierte Boombox (Stationärer 3D-Block):** 3D-Richtungsklang fest verankert an der platzierten Boombox in der Welt.
+  - **Kopfhörer (Lokal):** Voller Stereo-Sound in nativer Sample-Rate nur für dich selbst (`0` Netzwerk-Traffic, funktioniert auch auf Vanilla-/Fremdservern).
+  - **Tragbarer 3D-Lautsprecher (Multiplayer & Essential):** 3D-Richtungsklang, der deinem Charakter beim Laufen folgt.
+  - **Platzierte Boombox (Stationärer 3D-Block):** 3D-Richtungsklang fest verankert an der platzierten Boombox in der Welt.
 - **100 % Essential-Mod-kompatibel (48 kHz Opus-3D-Streaming):** Codiert jedes der 6 Quellformate live in kompakte `48 kHz` Opus-Pakete (`~8 KB/s`, `<= 4 KB` pro Paket) über Minecrafts Standard-Play-Kanal — **keine externen UDP-Ports** nötig, **keine Paketgrößen-Kicks**, **sofortiges Mit-Hören mitten im Song** und **0 Mixins** (keine Konflikte mit Essential, Sodium, Iris & Co.).
 - **Modernes Hi-Fi Ingame-GUI:**
   - Live-Suche nach Titel, Künstler, Dateiname oder **Audioformat** (`FLAC`, `OPUS`, `M4A`, `WAV`, `OGG`, `MP3`), farbige Format-Badges, Echtzeit-Equalizer, **Seeking**, **Shuffle**, **Loop** (`Aus` / `Alle` / `1x`), **Lautstärke-Slider**, **Stummschaltung anderer Streams** & **Drag & Drop Import**!

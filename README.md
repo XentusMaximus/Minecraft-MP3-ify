@@ -1,4 +1,4 @@
-# 🎧 MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.1`)
+# MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.1`)
 
 ![Version 1.3.1](https://img.shields.io/badge/Version-1.3.1-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)

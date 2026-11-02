@@ -1,4 +1,4 @@
-# 🎧 MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.1`)
+# MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.1`)
 
 ![Version 1.3.1](https://img.shields.io/badge/Version-1.3.1-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
@@ -12,7 +12,7 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ---
 
-## ✨ Features
+## Features
 
 - **Verlinkbare 3D-Lautsprecher (`mp3player:speaker`) & Lautsprecher-Controller (`mp3player:speaker_controller`):**
   - **Volle 16×16×16 Lautsprecher-Blöcke ohne Partikel:** Platzierbare, direktionale Studio-Lautsprecher als volle Blöcke, die während der Wiedergabe **keine Partikel** erzeugen.
@@ -41,7 +41,7 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ---
 
-## 📥 Installation & Nutzung
+## Installation & Nutzung
 
 ### Voraussetzungen
 - **Minecraft:** `26.2`
@@ -51,15 +51,15 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ### Einrichtung
 1. Lege die gebaute `mp3player-1.3.1.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
-   > 💡 **Hinweis für Essential World Hosting & Server:** Für den **🔊 3D-Lautsprecher**, die **📻 Boombox** und **🔊 verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.1.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
+   > **Hinweis für Essential World Hosting & Server:** Für den **🔊 3D-Lautsprecher**, die **📻 Boombox** und **🔊 verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.1.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
 2. **Eigene Audiodateien hinzufügen (3 Möglichkeiten):**
-   - 📂 **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
-   - 🖱️ **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.
-   - 📁 **Manuell:** Kopiere deine Audiodateien in den Ordner `<minecraft-instanz>/mp3s/` *(Unterordner werden ebenfalls automatisch erkannt)*.
+   - **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
+   - **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.
+   - **Manuell:** Kopiere deine Audiodateien in den Ordner `<minecraft-instanz>/mp3s/` *(Unterordner werden ebenfalls automatisch erkannt)*.
 
 ---
 
-## 🛠️ Crafting-Rezepte
+## Crafting-Rezepte
 
 ### 1. Tragbarer MP3-Player (`mp3player:mp3_player`)
 
@@ -97,7 +97,7 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ---
 
-## 🎮 Steuerung & Shortcuts
+## Steuerung & Shortcuts
 
 | Aktion | Funktion |
 | :--- | :--- |
@@ -115,7 +115,7 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 Alle Einstellungen (Minecraft-Optionen-Musiklautstärke, Player-Lautstärke, Audio-Modus, Shuffle, Loop, Stummschaltung anderer Spieler) werden automatisch in `config/mp3player.properties` gespeichert.
 
-### 🧪 Debug / Timeout-Test-Helper (Client-Befehl)
+### Debug / Timeout-Test-Helper (Client-Befehl)
 
 | Befehl | Wirkung |
 | :--- | :--- |
@@ -125,7 +125,7 @@ Alle Einstellungen (Minecraft-Optionen-Musiklautstärke, Player-Lautstärke, Aud
 
 ---
 
-## 🏗️ Projektstruktur & Build aus dem Quellcode
+## Projektstruktur & Build aus dem Quellcode
 
 ```text
 src/
@@ -159,7 +159,7 @@ Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.3.1.jar`.
 
 ---
 
-## 📄 Lizenz & Autor
+## Lizenz & Autor
 
 - **Autor:** IceKaffee
 - **Lizenz:** MIT

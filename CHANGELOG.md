@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.2] - 2026-11-03
+
+### Added
+- **Shared Speaker Playback Queue (`Queue`) & Skip-Vote**:
+  - Added a server-synchronized **Speaker Playback Queue** (`ViewTab.QUEUE`) accessible via the header button or inside the Speaker Controller GUI, displaying the currently playing track (`LIVE`) and all upcoming queued tracks along with **which player added each track** (`Added by: <Player>`).
+  - Added a `+` queue button to every row in the music library, plus `Skip / Skip-Vote`, per-entry `X` removal, and `Clear` controls in the Queue tab.
+  - **Unanimous Skip-Vote for Queue Participants:** When multiple players have added tracks to the queue, skipping the active song requires all players with songs in the queue to agree (`Skip (x/y)`). When only a single player has songs in the queue, clicking `Skip` skips the track immediately.
+
+### Fixed
+- **Independent Speaker Networks (`Home-HiFi` vs. `Club`) & Prevented Overlapping Playback**:
+  - Scoped speaker queues to independent `96`-block speaker networks (`SpeakerNetworkQueue`) instead of the entire dimension, allowing separate speaker setups outside each other's scan radius to play independently at the same time.
+  - When a player connects to a speaker network that already has an active queue, their previous separate speaker network is automatically closed and unlinked.
+  - Within the same speaker network, multiple players' tracks are queued sequentially without audio overlap (`S2CQueuePlayTrigger`).
+- **Queue UI & Play Button Refinements**:
+  - Fixed the `X` remove button outline width in the Queue tab and ensured pressing `Play` only toggles active playback without auto-enqueuing songs (adding songs is done exclusively via the Songs tab).
+
+---
+
 ## [1.3.1] - 2026-11-01
 
 ### Changed
@@ -29,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Streams music from each linked speaker's block position (`x + 0.5, y + 0.5, z + 0.5`) as an **additional synchronized 3D OpenAL stream** to cover large areas in Singleplayer, LAN, Essential World Hosting, and Dedicated Fabric Servers.
 - **Speaker Controller Item (`mp3player:speaker_controller`) & Speaker Management GUI**:
   - Right-click any placed `Speaker` block with the `Speaker Controller` to link or unlink it in real time (even mid-song).
-  - Right-click in the air to open the **Speaker Management & Playback GUI** (`🔊` tab), featuring a 96-block `📡 Scan` button, master speaker stream toggle, per-speaker `ON/OFF` mute toggle, per-speaker volume multiplier (`25%` / `50%` / `75%` / `100%`), unlink button, and full playback transport controls.
+  - Right-click in the air to open the **Speaker Management & Playback GUI** (`Speakers` tab), featuring a 96-block `Scan` button, master speaker stream toggle, per-speaker `ON/OFF` mute toggle, per-speaker volume multiplier (`25%` / `50%` / `75%` / `100%`), unlink button, and full playback transport controls.
   - `Shift + Right-Click` in the air with the `Speaker Controller` (or on a `Speaker` block) for instant Play/Pause on the speaker network.
 
 ---
@@ -64,7 +82,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Upgraded 3D Spatial Multiplayer Streaming to 48 kHz Pure-Java Opus (`Opus3dStreamCodec`)**:
-  - All 6 local audio formats can now be broadcast live in **🔊 3D Speaker Mode** across Dedicated Fabric Servers, LAN, and **Essential Mod** hosted worlds.
+  - All 6 local audio formats can now be broadcast live in **3D Speaker Mode** across Dedicated Fabric Servers, LAN, and **Essential Mod** hosted worlds.
   - Decoded local PCM is tapped in 1:1 hardware-clock lockstep with OpenAL, downmixed to mono, continuously resampled to `48 kHz`, and encoded at `64 kbps` (~8 KB/s) into compact `<= 4 KB` `CustomPacketPayload` batches — eliminating clock drift, cutting network bandwidth by up to 95% compared to uncompressed audio, and allowing instant headerless mid-song joining and seeking for any source format.
 
 ---

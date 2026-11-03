@@ -14,6 +14,8 @@ import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
 import de.vibecoded.mp3player.item.Mp3PlayerItem;
 import de.vibecoded.mp3player.item.SpeakerControllerItem;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CQueuePlayTrigger;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CSpeakerQueueSync;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamState;
@@ -152,6 +154,12 @@ public class Mp3PlayerClient implements ClientModInitializer {
 						remoteSpeakerManager.onStreamStop(payload);
 					}
 				}));
+
+		ClientPlayNetworking.registerGlobalReceiver(S2CSpeakerQueueSync.TYPE, (payload, context) ->
+				context.client().execute(() -> audioController.onServerQueueSync(payload)));
+
+		ClientPlayNetworking.registerGlobalReceiver(S2CQueuePlayTrigger.TYPE, (payload, context) ->
+				context.client().execute(() -> audioController.onServerQueuePlayTrigger(payload)));
 
 		TimeoutSimulationHelper.registerCommands();
 
@@ -305,17 +313,25 @@ public class Mp3PlayerClient implements ClientModInitializer {
 					Mp3AudioController.DEFAULT_SPEAKER_SCAN_RADIUS
 			);
 		}
+		boolean anotherWasPlaying = audioController.isAnotherPlayerPlayingOnSpeakers();
 		audioController.togglePlayPauseOnSpeakers();
 		Mp3TrackInfo track = audioController.currentTrack();
-		if (mc.player != null && track != null) {
-			String key = audioController.isPlaying()
-					? "message.mp3player.speakers_playing"
-					: "message.mp3player.paused";
-			ChatFormatting color = audioController.isPlaying() ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY;
-			mc.player.sendOverlayMessage(
-					Component.translatable(key, track.fullDisplayLabel(), audioController.activeLinkedSpeakerCount())
-							.withStyle(color)
-			);
+		if (mc.player != null) {
+			if (anotherWasPlaying && track == null && !libraryManager.tracks().isEmpty()) {
+				mc.player.sendOverlayMessage(
+						Component.translatable("message.mp3player.queue_added_short")
+								.withStyle(ChatFormatting.GOLD)
+				);
+			} else if (track != null) {
+				String key = audioController.isPlaying()
+						? "message.mp3player.speakers_playing"
+						: "message.mp3player.paused";
+				ChatFormatting color = audioController.isPlaying() ? ChatFormatting.LIGHT_PURPLE : ChatFormatting.GRAY;
+				mc.player.sendOverlayMessage(
+						Component.translatable(key, track.fullDisplayLabel(), audioController.activeLinkedSpeakerCount())
+								.withStyle(color)
+				);
+			}
 		}
 	}
 }

@@ -287,6 +287,27 @@ public final class RemoteSpeakerManager {
 		return null;
 	}
 
+	public RemoteStream findAnySpeakerStream() {
+		for (RemoteStream stream : activeStreams.values()) {
+			if (!stream.speakers.isEmpty()) {
+				return stream;
+			}
+		}
+		return null;
+	}
+
+	public boolean isSpeakerStreamingRemotely(BlockPos pos) {
+		if (pos == null) {
+			return false;
+		}
+		for (RemoteStream stream : activeStreams.values()) {
+			if (!stream.paused && stream.hasSpeakerAt(pos)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public void onStreamStart(S2CStreamStart payload) {
 		Minecraft mc = Minecraft.getInstance();
 		if (mc.player != null && mc.player.getUUID().equals(payload.speakerUuid())) {

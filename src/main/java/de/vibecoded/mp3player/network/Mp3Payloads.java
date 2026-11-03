@@ -20,6 +20,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 public final class Mp3Payloads {
 	public static final int MAX_CHUNK_BYTES = 4096;
 	public static final int MAX_LINKED_SPEAKERS = 64;
+	public static final int MAX_QUEUE_ENTRIES = 64;
 	private static final int MAX_TEXT_LEN = 256;
 
 	private Mp3Payloads() {
@@ -33,6 +34,48 @@ public final class Mp3Payloads {
 			this.pos = pos != null ? pos.immutable() : BlockPos.ZERO;
 			this.volume = clampVolume(volume);
 		}
+	}
+
+	/**
+	 * Represents a single entry in the shared Speaker Playback Queue, including who added it.
+	 */
+	public record QueueEntryInfo(
+			UUID entryId,
+			UUID ownerUuid,
+			String ownerName,
+			String trackId,
+			String trackTitle,
+			int durationSeconds,
+			boolean nowPlaying,
+			boolean paused
+	) {
+		public QueueEntryInfo(
+				UUID entryId,
+				UUID ownerUuid,
+				String ownerName,
+				String trackId,
+				String trackTitle,
+				int durationSeconds,
+				boolean nowPlaying,
+				boolean paused
+		) {
+			this.entryId = entryId != null ? entryId : UUID.randomUUID();
+			this.ownerUuid = ownerUuid != null ? ownerUuid : new UUID(0L, 0L);
+			this.ownerName = truncate(ownerName, 64);
+			this.trackId = truncate(trackId, MAX_TEXT_LEN);
+			this.trackTitle = truncate(trackTitle, MAX_TEXT_LEN);
+			this.durationSeconds = Math.max(0, durationSeconds);
+			this.nowPlaying = nowPlaying;
+			this.paused = paused;
+		}
+	}
+
+	public enum QueueActionType {
+		REMOVE_ENTRY,
+		SKIP_CURRENT,
+		CLEAR_ALL,
+		ADVANCE_FINISHED,
+		SYNC_SPEAKERS
 	}
 
 	// ===================== CLIENT -> SERVER =====================
@@ -265,16 +308,230 @@ public final class Mp3Payloads {
 		}
 	}
 
+	// ===================== SPEAKER QUEUE PAYLOADS =====================
+
+	public record C2SQueueAdd(
+			String trackId,
+			String trackTitle,
+			int durationSeconds,
+			boolean switchActiveIfOwner,
+			List<SpeakerTarget> speakers
+	) implements CustomPacketPayload {
+		public static final Type<C2SQueueAdd> TYPE = new Type<>(Mp3PlayerMod.id("c2s_queue_add"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, C2SQueueAdd> CODEC = StreamCodec.of(
+				(buf, val) -> {
+					buf.writeUtf(truncate(val.trackId()), MAX_TEXT_LEN);
+					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
+					buf.writeVarInt(Math.max(0, val.durationSeconds()));
+					buf.writeBoolean(val.switchActiveIfOwner());
+					writeSpeakerTargets(buf, val.speakers());
+				},
+				buf -> new C2SQueueAdd(
+						buf.readUtf(MAX_TEXT_LEN),
+						buf.readUtf(MAX_TEXT_LEN),
+						Math.max(0, buf.readVarInt()),
+						buf.readBoolean(),
+						readSpeakerTargets(buf)
+				)
+		);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+
+	public record C2SQueueAction(
+			QueueActionType action,
+			Optional<UUID> targetEntryId,
+			List<SpeakerTarget> speakers
+	) implements CustomPacketPayload {
+		public static final Type<C2SQueueAction> TYPE = new Type<>(Mp3PlayerMod.id("c2s_queue_action"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, C2SQueueAction> CODEC = StreamCodec.of(
+				(buf, val) -> {
+					buf.writeVarInt(val.action() != null ? val.action().ordinal() : 0);
+					if (val.targetEntryId() != null && val.targetEntryId().isPresent()) {
+						buf.writeBoolean(true);
+						buf.writeUUID(val.targetEntryId().get());
+					} else {
+						buf.writeBoolean(false);
+					}
+					writeSpeakerTargets(buf, val.speakers());
+				},
+				buf -> {
+					int ord = buf.readVarInt();
+					QueueActionType[] values = QueueActionType.values();
+					QueueActionType act = (ord >= 0 && ord < values.length) ? values[ord] : QueueActionType.SYNC_SPEAKERS;
+					Optional<UUID> entryId = buf.readBoolean() ? Optional.of(buf.readUUID()) : Optional.empty();
+					List<SpeakerTarget> spk = readSpeakerTargets(buf);
+					return new C2SQueueAction(act, entryId, spk);
+				}
+		);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+
+	public record S2CSpeakerQueueSync(
+			List<QueueEntryInfo> entries,
+			int skipVotes,
+			int requiredSkipVotes,
+			List<UUID> skipVoterUuids,
+			Optional<List<BlockPos>> retainedSpeakers
+	) implements CustomPacketPayload {
+		public S2CSpeakerQueueSync(
+				List<QueueEntryInfo> entries,
+				int skipVotes,
+				int requiredSkipVotes,
+				List<UUID> skipVoterUuids
+		) {
+			this(entries, skipVotes, requiredSkipVotes, skipVoterUuids, Optional.empty());
+		}
+
+		public static final Type<S2CSpeakerQueueSync> TYPE = new Type<>(Mp3PlayerMod.id("s2c_speaker_queue_sync"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, S2CSpeakerQueueSync> CODEC = StreamCodec.of(
+				(buf, val) -> {
+					List<QueueEntryInfo> list = val.entries();
+					if (list == null || list.isEmpty()) {
+						buf.writeVarInt(0);
+					} else {
+						int count = Math.min(MAX_QUEUE_ENTRIES, list.size());
+						buf.writeVarInt(count);
+						for (int i = 0; i < count; i++) {
+							QueueEntryInfo item = list.get(i);
+							buf.writeUUID(item.entryId());
+							buf.writeUUID(item.ownerUuid());
+							buf.writeUtf(truncate(item.ownerName(), 64), 64);
+							buf.writeUtf(truncate(item.trackId(), MAX_TEXT_LEN), MAX_TEXT_LEN);
+							buf.writeUtf(truncate(item.trackTitle(), MAX_TEXT_LEN), MAX_TEXT_LEN);
+							buf.writeVarInt(Math.max(0, item.durationSeconds()));
+							buf.writeBoolean(item.nowPlaying());
+							buf.writeBoolean(item.paused());
+						}
+					}
+					buf.writeVarInt(Math.max(0, val.skipVotes()));
+					buf.writeVarInt(Math.max(0, val.requiredSkipVotes()));
+					List<UUID> voters = val.skipVoterUuids();
+					if (voters == null || voters.isEmpty()) {
+						buf.writeVarInt(0);
+					} else {
+						int vCount = Math.min(MAX_QUEUE_ENTRIES, voters.size());
+						buf.writeVarInt(vCount);
+						for (int i = 0; i < vCount; i++) {
+							buf.writeUUID(voters.get(i));
+						}
+					}
+					if (val.retainedSpeakers() != null && val.retainedSpeakers().isPresent()) {
+						buf.writeBoolean(true);
+						List<BlockPos> posList = val.retainedSpeakers().get();
+						int pCount = Math.min(MAX_LINKED_SPEAKERS, posList.size());
+						buf.writeVarInt(pCount);
+						for (int i = 0; i < pCount; i++) {
+							buf.writeBlockPos(posList.get(i));
+						}
+					} else {
+						buf.writeBoolean(false);
+					}
+				},
+				buf -> {
+					int count = Math.max(0, Math.min(MAX_QUEUE_ENTRIES, buf.readVarInt()));
+					List<QueueEntryInfo> list;
+					if (count == 0) {
+						list = Collections.emptyList();
+					} else {
+						List<QueueEntryInfo> tmp = new ArrayList<>(count);
+						for (int i = 0; i < count; i++) {
+							tmp.add(new QueueEntryInfo(
+									buf.readUUID(),
+									buf.readUUID(),
+									buf.readUtf(64),
+									buf.readUtf(MAX_TEXT_LEN),
+									buf.readUtf(MAX_TEXT_LEN),
+									Math.max(0, buf.readVarInt()),
+									buf.readBoolean(),
+									buf.readBoolean()
+							));
+						}
+						list = Collections.unmodifiableList(tmp);
+					}
+					int skipVotes = Math.max(0, buf.readVarInt());
+					int requiredSkipVotes = Math.max(0, buf.readVarInt());
+					int vCount = Math.max(0, Math.min(MAX_QUEUE_ENTRIES, buf.readVarInt()));
+					List<UUID> voters;
+					if (vCount == 0) {
+						voters = Collections.emptyList();
+					} else {
+						List<UUID> vTmp = new ArrayList<>(vCount);
+						for (int i = 0; i < vCount; i++) {
+							vTmp.add(buf.readUUID());
+						}
+						voters = Collections.unmodifiableList(vTmp);
+					}
+					Optional<List<BlockPos>> retained;
+					if (buf.readBoolean()) {
+						int pCount = Math.max(0, Math.min(MAX_LINKED_SPEAKERS, buf.readVarInt()));
+						List<BlockPos> pTmp = new ArrayList<>(pCount);
+						for (int i = 0; i < pCount; i++) {
+							pTmp.add(buf.readBlockPos().immutable());
+						}
+						retained = Optional.of(Collections.unmodifiableList(pTmp));
+					} else {
+						retained = Optional.empty();
+					}
+					return new S2CSpeakerQueueSync(list, skipVotes, requiredSkipVotes, voters, retained);
+				}
+		);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+
+	public record S2CQueuePlayTrigger(
+			UUID entryId,
+			String trackId,
+			String trackTitle,
+			List<SpeakerTarget> speakers
+	) implements CustomPacketPayload {
+		public static final Type<S2CQueuePlayTrigger> TYPE = new Type<>(Mp3PlayerMod.id("s2c_queue_play_trigger"));
+		public static final StreamCodec<RegistryFriendlyByteBuf, S2CQueuePlayTrigger> CODEC = StreamCodec.of(
+				(buf, val) -> {
+					buf.writeUUID(val.entryId());
+					buf.writeUtf(truncate(val.trackId()), MAX_TEXT_LEN);
+					buf.writeUtf(truncate(val.trackTitle()), MAX_TEXT_LEN);
+					writeSpeakerTargets(buf, val.speakers());
+				},
+				buf -> new S2CQueuePlayTrigger(
+						buf.readUUID(),
+						buf.readUtf(MAX_TEXT_LEN),
+						buf.readUtf(MAX_TEXT_LEN),
+						readSpeakerTargets(buf)
+				)
+		);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
+
 	public static void registerPayloads() {
 		PayloadTypeRegistry.serverboundPlay().register(C2SStreamStart.TYPE, C2SStreamStart.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(C2SStreamChunk.TYPE, C2SStreamChunk.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(C2SStreamState.TYPE, C2SStreamState.CODEC);
 		PayloadTypeRegistry.serverboundPlay().register(C2SStreamStop.TYPE, C2SStreamStop.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(C2SQueueAdd.TYPE, C2SQueueAdd.CODEC);
+		PayloadTypeRegistry.serverboundPlay().register(C2SQueueAction.TYPE, C2SQueueAction.CODEC);
 
 		PayloadTypeRegistry.clientboundPlay().register(S2CStreamStart.TYPE, S2CStreamStart.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(S2CStreamChunk.TYPE, S2CStreamChunk.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(S2CStreamState.TYPE, S2CStreamState.CODEC);
 		PayloadTypeRegistry.clientboundPlay().register(S2CStreamStop.TYPE, S2CStreamStop.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(S2CSpeakerQueueSync.TYPE, S2CSpeakerQueueSync.CODEC);
+		PayloadTypeRegistry.clientboundPlay().register(S2CQueuePlayTrigger.TYPE, S2CQueuePlayTrigger.CODEC);
 	}
 
 	private static void writeOptionalBlockPos(RegistryFriendlyByteBuf buf, Optional<BlockPos> optPos) {
@@ -319,10 +576,14 @@ public final class Mp3Payloads {
 	}
 
 	private static String truncate(String s) {
+		return truncate(s, MAX_TEXT_LEN);
+	}
+
+	private static String truncate(String s, int maxLen) {
 		if (s == null) {
 			return "";
 		}
-		return s.length() > MAX_TEXT_LEN ? s.substring(0, MAX_TEXT_LEN) : s;
+		return s.length() > maxLen ? s.substring(0, maxLen) : s;
 	}
 
 	private static float clampVolume(float v) {

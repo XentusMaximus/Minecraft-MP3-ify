@@ -3,18 +3,28 @@ package de.vibecoded.mp3player.network;
 import de.vibecoded.mp3player.Mp3PlayerMod;
 import de.vibecoded.mp3player.block.BoomboxBlock;
 import de.vibecoded.mp3player.block.SpeakerBlock;
+import de.vibecoded.mp3player.network.Mp3Payloads.C2SQueueAction;
+import de.vibecoded.mp3player.network.Mp3Payloads.C2SQueueAdd;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStop;
+import de.vibecoded.mp3player.network.Mp3Payloads.QueueActionType;
+import de.vibecoded.mp3player.network.Mp3Payloads.QueueEntryInfo;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CQueuePlayTrigger;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CSpeakerQueueSync;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamStop;
 import de.vibecoded.mp3player.network.Mp3Payloads.SpeakerTarget;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,19 +49,243 @@ import net.minecraft.world.phys.Vec3;
 /**
  * Relays 3D speaker, placed Boombox, and linked Speaker network Opus audio chunks on IntegratedServer
  * (Singleplayer / Essential World Host / LAN) as well as Dedicated Fabric Servers.
+ * Also coordinates the shared Speaker Playback Queue so multiple players linked to speakers
+ * play sequentially without overlapping streams.
  */
 public final class SpeakerRelayServer {
 	public static final double HEARING_RADIUS = 80.0;
 	private static final double HEARING_RADIUS_SQR = HEARING_RADIUS * HEARING_RADIUS;
 	private static final double DISCONNECT_RADIUS_SQR = (HEARING_RADIUS + 8.0) * (HEARING_RADIUS + 8.0);
+	public static final double SPEAKER_NETWORK_RADIUS = 96.0;
+	private static final double SPEAKER_NETWORK_RADIUS_SQR = SPEAKER_NETWORK_RADIUS * SPEAKER_NETWORK_RADIUS;
 	private static final double MAX_BOOMBOX_CONTROL_SQR = 256.0 * 256.0;
 	private static final double MAX_SPEAKER_CONTROL_SQR = 512.0 * 512.0;
 	private static final int MAX_BYTES_PER_SECOND = 160 * 1024;
 
 	private static final Map<UUID, ActiveSession> SESSIONS = new ConcurrentHashMap<>();
+	private static final Map<UUID, SpeakerNetworkQueue> NETWORKS = new ConcurrentHashMap<>();
+	private static final Map<UUID, UUID> PLAYER_NETWORK = new ConcurrentHashMap<>();
 	private static int tickCounter = 0;
 
 	private SpeakerRelayServer() {
+	}
+
+	private static final class ServerQueueEntry {
+		final UUID entryId;
+		final UUID ownerUuid;
+		final String ownerName;
+		final String trackId;
+		volatile String trackTitle;
+		volatile int durationSeconds;
+		volatile boolean paused;
+		volatile long triggeredAtMs;
+		volatile boolean streamStarted;
+
+		ServerQueueEntry(
+				UUID entryId,
+				UUID ownerUuid,
+				String ownerName,
+				String trackId,
+				String trackTitle,
+				int durationSeconds
+		) {
+			this.entryId = entryId;
+			this.ownerUuid = ownerUuid;
+			this.ownerName = ownerName;
+			this.trackId = trackId;
+			this.trackTitle = trackTitle;
+			this.durationSeconds = Math.max(0, durationSeconds);
+			this.paused = false;
+			this.triggeredAtMs = System.currentTimeMillis();
+			this.streamStarted = false;
+		}
+
+		QueueEntryInfo toInfo(boolean nowPlaying) {
+			return new QueueEntryInfo(
+					entryId,
+					ownerUuid,
+					ownerName,
+					trackId,
+					trackTitle,
+					durationSeconds,
+					nowPlaying,
+					paused
+			);
+		}
+	}
+
+	/**
+	 * Represents an independent local Speaker Network cluster (within the 96-block scan radius)
+	 * and its own Playback Queue & Skip-Vote state. Multiple networks outside each other's scan
+	 * radius (e.g., a "Home-HiFi" vs. a "Club") operate independently in parallel.
+	 */
+	private static final class SpeakerNetworkQueue {
+		final UUID networkId = UUID.randomUUID();
+		final ResourceKey<Level> dimension;
+		ServerQueueEntry activeEntry;
+		final Deque<ServerQueueEntry> waitingEntries = new ArrayDeque<>();
+		final Map<UUID, List<SpeakerTarget>> playerLinkedSpeakers = new ConcurrentHashMap<>();
+		final Set<UUID> skipVotes = ConcurrentHashMap.newKeySet();
+
+		SpeakerNetworkQueue(ResourceKey<Level> dimension) {
+			this.dimension = dimension;
+		}
+
+		boolean hasQueue() {
+			return activeEntry != null || !waitingEntries.isEmpty();
+		}
+
+		boolean isEmptyNetwork() {
+			return activeEntry == null && waitingEntries.isEmpty() && playerLinkedSpeakers.isEmpty();
+		}
+
+		boolean isSpeakerInNetworkRadius(BlockPos pos, UUID excludingPlayer) {
+			if (pos == null) {
+				return false;
+			}
+			for (Map.Entry<UUID, List<SpeakerTarget>> entry : playerLinkedSpeakers.entrySet()) {
+				if (excludingPlayer != null && excludingPlayer.equals(entry.getKey())) {
+					continue;
+				}
+				for (SpeakerTarget st : entry.getValue()) {
+					if (st.pos().distSqr(pos) <= SPEAKER_NETWORK_RADIUS_SQR) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		boolean isAnySpeakerInNetworkRadius(List<SpeakerTarget> speakers, UUID excludingPlayer) {
+			if (speakers == null || speakers.isEmpty()) {
+				return false;
+			}
+			for (SpeakerTarget st : speakers) {
+				if (isSpeakerInNetworkRadius(st.pos(), excludingPlayer)) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		List<QueueEntryInfo> buildSnapshot() {
+			if (activeEntry == null && waitingEntries.isEmpty()) {
+				return Collections.emptyList();
+			}
+			List<QueueEntryInfo> list = new ArrayList<>(1 + waitingEntries.size());
+			if (activeEntry != null) {
+				list.add(activeEntry.toInfo(true));
+			}
+			for (ServerQueueEntry entry : waitingEntries) {
+				if (list.size() >= Mp3Payloads.MAX_QUEUE_ENTRIES) {
+					break;
+				}
+				list.add(entry.toInfo(false));
+			}
+			return list;
+		}
+
+		Set<UUID> getParticipants(MinecraftServer server) {
+			Set<UUID> participants = new LinkedHashSet<>();
+			if (activeEntry != null && isPlayerInDimension(server, dimension, activeEntry.ownerUuid)) {
+				participants.add(activeEntry.ownerUuid);
+			}
+			for (ServerQueueEntry entry : waitingEntries) {
+				if (isPlayerInDimension(server, dimension, entry.ownerUuid)) {
+					participants.add(entry.ownerUuid);
+				}
+			}
+			return participants;
+		}
+
+		S2CSpeakerQueueSync buildSyncPayload(MinecraftServer server, Optional<List<BlockPos>> retainedSpeakers) {
+			if (activeEntry == null && waitingEntries.isEmpty()) {
+				skipVotes.clear();
+				return new S2CSpeakerQueueSync(Collections.emptyList(), 0, 0, Collections.emptyList(), retainedSpeakers);
+			}
+			Set<UUID> participants = getParticipants(server);
+			skipVotes.retainAll(participants);
+			List<QueueEntryInfo> list = buildSnapshot();
+			List<UUID> voters = skipVotes.isEmpty() ? Collections.emptyList() : List.copyOf(skipVotes);
+			return new S2CSpeakerQueueSync(list, voters.size(), participants.size(), voters, retainedSpeakers);
+		}
+
+		private static boolean isPlayerInDimension(MinecraftServer server, ResourceKey<Level> dimension, UUID playerUuid) {
+			if (server == null || dimension == null || playerUuid == null) {
+				return false;
+			}
+			ServerPlayer p = server.getPlayerList().getPlayer(playerUuid);
+			return p != null && dimension.equals(p.level().dimension());
+		}
+
+		List<SpeakerTarget> computeCombinedSpeakers(ServerLevel level, UUID primaryOwner) {
+			Map<BlockPos, SpeakerTarget> merged = new LinkedHashMap<>();
+			if (primaryOwner != null) {
+				List<SpeakerTarget> primary = playerLinkedSpeakers.get(primaryOwner);
+				if (primary != null) {
+					for (SpeakerTarget st : primary) {
+						if (isSpeakerValidInLevel(level, st.pos())) {
+							merged.put(st.pos(), st);
+						}
+					}
+				}
+			}
+			for (Map.Entry<UUID, List<SpeakerTarget>> entry : playerLinkedSpeakers.entrySet()) {
+				if (primaryOwner != null && primaryOwner.equals(entry.getKey())) {
+					continue;
+				}
+				for (SpeakerTarget st : entry.getValue()) {
+					if (merged.size() >= Mp3Payloads.MAX_LINKED_SPEAKERS) {
+						break;
+					}
+					if (!merged.containsKey(st.pos()) && isSpeakerValidInLevel(level, st.pos())) {
+						merged.put(st.pos(), st);
+					}
+				}
+			}
+			return merged.isEmpty() ? Collections.emptyList() : List.copyOf(merged.values());
+		}
+
+		void removeSpeakerPos(BlockPos pos) {
+			for (Map.Entry<UUID, List<SpeakerTarget>> entry : playerLinkedSpeakers.entrySet()) {
+				List<SpeakerTarget> list = entry.getValue();
+				boolean found = false;
+				for (SpeakerTarget st : list) {
+					if (pos.equals(st.pos())) {
+						found = true;
+						break;
+					}
+				}
+				if (found) {
+					List<SpeakerTarget> updated = new ArrayList<>(list.size());
+					for (SpeakerTarget st : list) {
+						if (!pos.equals(st.pos())) {
+							updated.add(st);
+						}
+					}
+					if (updated.isEmpty()) {
+						playerLinkedSpeakers.remove(entry.getKey());
+					} else {
+						entry.setValue(Collections.unmodifiableList(updated));
+					}
+				}
+			}
+		}
+
+		private static boolean isSpeakerValidInLevel(ServerLevel level, BlockPos pos) {
+			if (level == null || pos == null) {
+				return false;
+			}
+			return !level.isLoaded(pos) || level.getBlockState(pos).is(Mp3PlayerMod.SPEAKER_BLOCK);
+		}
+	}
+
+	private static SpeakerNetworkQueue getPlayerNetwork(UUID playerUuid) {
+		if (playerUuid == null) {
+			return null;
+		}
+		UUID netId = PLAYER_NETWORK.get(playerUuid);
+		return netId != null ? NETWORKS.get(netId) : null;
 	}
 
 	private static final class ActiveSession {
@@ -142,15 +376,54 @@ public final class SpeakerRelayServer {
 
 		ServerPlayNetworking.registerGlobalReceiver(C2SStreamStop.TYPE, (payload, context) -> {
 			ServerPlayer speaker = context.player();
-			context.server().execute(() -> stopSessionFor(context.server(), speaker.getUUID(), payload.streamId(), false));
+			context.server().execute(() -> stopSessionFor(context.server(), speaker.getUUID(), payload.streamId(), false, true));
+		});
+
+		ServerPlayNetworking.registerGlobalReceiver(C2SQueueAdd.TYPE, (payload, context) -> {
+			ServerPlayer speaker = context.player();
+			context.server().execute(() -> handleQueueAdd(context.server(), speaker, payload));
+		});
+
+		ServerPlayNetworking.registerGlobalReceiver(C2SQueueAction.TYPE, (payload, context) -> {
+			ServerPlayer speaker = context.player();
+			context.server().execute(() -> handleQueueAction(context.server(), speaker, payload));
+		});
+
+		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+			ServerPlayer joining = handler.getPlayer();
+			server.execute(() -> {
+				PLAYER_NETWORK.remove(joining.getUUID());
+				if (ServerPlayNetworking.canSend(joining, S2CSpeakerQueueSync.TYPE)) {
+					ServerPlayNetworking.send(
+							joining,
+							new S2CSpeakerQueueSync(Collections.emptyList(), 0, 0, Collections.emptyList())
+					);
+				}
+			});
 		});
 
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			UUID leaving = handler.getPlayer().getUUID();
 			server.execute(() -> {
-				stopSessionFor(server, leaving, null, false);
+				stopSessionFor(server, leaving, null, false, false);
 				for (ActiveSession session : SESSIONS.values()) {
 					session.activeListeners.remove(leaving);
+				}
+				PLAYER_NETWORK.remove(leaving);
+				List<SpeakerNetworkQueue> allNets = new ArrayList<>(NETWORKS.values());
+				for (SpeakerNetworkQueue queue : allNets) {
+					queue.playerLinkedSpeakers.remove(leaving);
+					queue.skipVotes.remove(leaving);
+					boolean changed = queue.waitingEntries.removeIf(q -> leaving.equals(q.ownerUuid));
+					ServerLevel sl = server.getLevel(queue.dimension);
+					if (queue.activeEntry != null && leaving.equals(queue.activeEntry.ownerUuid)) {
+						advanceQueue(server, sl, queue, false);
+					} else if (changed) {
+						checkSkipVoteAfterQueueChange(server, sl, queue);
+					}
+					if (queue.isEmptyNetwork()) {
+						NETWORKS.remove(queue.networkId, queue);
+					}
 				}
 			});
 		});
@@ -163,6 +436,8 @@ public final class SpeakerRelayServer {
 				}
 			}
 			SESSIONS.clear();
+			NETWORKS.clear();
+			PLAYER_NETWORK.clear();
 		});
 
 		ServerTickEvents.END_SERVER_TICK.register(SpeakerRelayServer::onServerTick);
@@ -182,7 +457,7 @@ public final class SpeakerRelayServer {
 			}
 		}
 		for (ActiveSession session : toStop) {
-			stopSessionFor(server, session.speakerUuid, session.streamId, true);
+			stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 		}
 	}
 
@@ -190,7 +465,18 @@ public final class SpeakerRelayServer {
 	 * Called immediately by SpeakerBlock when a placed Speaker block is broken or removed.
 	 */
 	public static void onSpeakerRemoved(MinecraftServer server, ServerLevel level, BlockPos pos) {
-		if (server == null || level == null || pos == null || SESSIONS.isEmpty()) {
+		if (server == null || level == null || pos == null) {
+			return;
+		}
+		for (SpeakerNetworkQueue queue : NETWORKS.values()) {
+			if (level.dimension().equals(queue.dimension)) {
+				queue.removeSpeakerPos(pos);
+				if (queue.isEmptyNetwork()) {
+					NETWORKS.remove(queue.networkId, queue);
+				}
+			}
+		}
+		if (SESSIONS.isEmpty()) {
 			return;
 		}
 		List<ActiveSession> snapshot = new ArrayList<>(SESSIONS.values());
@@ -218,15 +504,483 @@ public final class SpeakerRelayServer {
 			session.speakers = Collections.unmodifiableList(remaining);
 
 			if (!session.hasAnyAudioSource()) {
-				stopSessionFor(server, session.speakerUuid, session.streamId, true);
+				stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 			} else {
 				broadcastStateUpdate(server, session, true);
 			}
 		}
 	}
 
+	// ===================== SPEAKER NETWORK & PLAYBACK QUEUE HANDLERS =====================
+
+	/**
+	 * Resolves which independent 96-block SpeakerNetworkQueue the player belongs to based on
+	 * their linked speakers.
+	 * - If the player links to speakers outside the 96-block scan radius of any existing network,
+	 *   a separate independent SpeakerNetworkQueue is created (e.g., Home-HiFi vs. Club).
+	 * - If the player connects to a network that already has an active queue, any previous
+	 *   separate network of that player is closed automatically.
+	 */
+	private static SpeakerNetworkQueue resolvePlayerNetwork(
+			MinecraftServer server,
+			ServerLevel level,
+			ServerPlayer player,
+			List<SpeakerTarget> validSpeakers
+	) {
+		UUID playerUuid = player.getUUID();
+		ResourceKey<Level> dimension = level.dimension();
+		SpeakerNetworkQueue currentNet = getPlayerNetwork(playerUuid);
+
+		if (currentNet != null && !dimension.equals(currentNet.dimension)) {
+			closeOrLeaveSeparateNetwork(server, level, playerUuid, currentNet);
+			currentNet = null;
+		}
+
+		if (validSpeakers == null || validSpeakers.isEmpty()) {
+			if (currentNet != null) {
+				closeOrLeaveSeparateNetwork(server, level, playerUuid, currentNet);
+			}
+			if (ServerPlayNetworking.canSend(player, S2CSpeakerQueueSync.TYPE)) {
+				ServerPlayNetworking.send(
+						player,
+						new S2CSpeakerQueueSync(Collections.emptyList(), 0, 0, Collections.emptyList(), Optional.empty())
+				);
+			}
+			return null;
+		}
+
+		// 1. Check if any of the player's linked speakers connects to an existing network with a queue
+		SpeakerNetworkQueue existingQueueNet = null;
+		for (SpeakerNetworkQueue candidate : NETWORKS.values()) {
+			if (candidate == currentNet || !dimension.equals(candidate.dimension)) {
+				continue;
+			}
+			if (candidate.hasQueue() && candidate.isAnySpeakerInNetworkRadius(validSpeakers, playerUuid)) {
+				existingQueueNet = candidate;
+				break;
+			}
+		}
+
+		if (existingQueueNet != null) {
+			if (currentNet != null && currentNet != existingQueueNet) {
+				closeOrLeaveSeparateNetwork(server, level, playerUuid, currentNet);
+			}
+			List<SpeakerTarget> filtered = new ArrayList<>();
+			for (SpeakerTarget st : validSpeakers) {
+				if (existingQueueNet.isSpeakerInNetworkRadius(st.pos(), playerUuid)) {
+					filtered.add(st);
+				}
+			}
+			List<SpeakerTarget> effectiveSpeakers = filtered.isEmpty() ? validSpeakers : Collections.unmodifiableList(filtered);
+			PLAYER_NETWORK.put(playerUuid, existingQueueNet.networkId);
+			existingQueueNet.playerLinkedSpeakers.put(playerUuid, effectiveSpeakers);
+
+			if (effectiveSpeakers.size() < validSpeakers.size() && ServerPlayNetworking.canSend(player, S2CSpeakerQueueSync.TYPE)) {
+				List<BlockPos> retainedPos = new ArrayList<>(effectiveSpeakers.size());
+				for (SpeakerTarget st : effectiveSpeakers) {
+					retainedPos.add(st.pos());
+				}
+				ServerPlayNetworking.send(
+						player,
+						existingQueueNet.buildSyncPayload(server, Optional.of(Collections.unmodifiableList(retainedPos)))
+				);
+			}
+			return existingQueueNet;
+		}
+
+		// 2. If the player already has a currentNet, check whether their speakers are still within its 96-block radius
+		if (currentNet != null) {
+			boolean stillInSameArea = currentNet.isAnySpeakerInNetworkRadius(validSpeakers, null);
+			if (!stillInSameArea) {
+				closeOrLeaveSeparateNetwork(server, level, playerUuid, currentNet);
+				currentNet = null;
+			}
+		}
+
+		// 3. Otherwise, find a nearby network within 96 blocks or create a separate independent network
+		if (currentNet == null) {
+			for (SpeakerNetworkQueue candidate : NETWORKS.values()) {
+				if (dimension.equals(candidate.dimension) && candidate.isAnySpeakerInNetworkRadius(validSpeakers, playerUuid)) {
+					currentNet = candidate;
+					break;
+				}
+			}
+			if (currentNet == null) {
+				currentNet = new SpeakerNetworkQueue(dimension);
+				NETWORKS.put(currentNet.networkId, currentNet);
+			}
+		}
+
+		PLAYER_NETWORK.put(playerUuid, currentNet.networkId);
+		currentNet.playerLinkedSpeakers.put(playerUuid, validSpeakers);
+		return currentNet;
+	}
+
+	private static void closeOrLeaveSeparateNetwork(
+			MinecraftServer server,
+			ServerLevel level,
+			UUID playerUuid,
+			SpeakerNetworkQueue oldNet
+	) {
+		if (oldNet == null || playerUuid == null) {
+			return;
+		}
+		PLAYER_NETWORK.remove(playerUuid, oldNet.networkId);
+		oldNet.playerLinkedSpeakers.remove(playerUuid);
+		oldNet.skipVotes.remove(playerUuid);
+		boolean removedWaiting = oldNet.waitingEntries.removeIf(q -> playerUuid.equals(q.ownerUuid));
+
+		if (oldNet.activeEntry != null && playerUuid.equals(oldNet.activeEntry.ownerUuid)) {
+			advanceQueue(server, level, oldNet, true);
+		} else {
+			ActiveSession ownSession = SESSIONS.get(playerUuid);
+			if (ownSession != null && !ownSession.speakers.isEmpty()) {
+				stopSessionFor(server, playerUuid, ownSession.streamId, true, false);
+			}
+			if (oldNet.activeEntry != null) {
+				ActiveSession activeSession = SESSIONS.get(oldNet.activeEntry.ownerUuid);
+				if (activeSession != null && oldNet.dimension.equals(activeSession.dimension)) {
+					updateSessionSpeakersFromPool(server, level, oldNet, activeSession);
+				}
+			}
+			if (removedWaiting) {
+				checkSkipVoteAfterQueueChange(server, level, oldNet);
+			}
+		}
+
+		if (oldNet.isEmptyNetwork()) {
+			NETWORKS.remove(oldNet.networkId, oldNet);
+		} else {
+			broadcastQueueSync(server, oldNet);
+		}
+	}
+
+	private static void handleQueueAdd(MinecraftServer server, ServerPlayer player, C2SQueueAdd payload) {
+		if (!(player.level() instanceof ServerLevel sl)) {
+			return;
+		}
+		List<SpeakerTarget> validSpeakers = validateSpeakers(sl, player, payload.speakers());
+		SpeakerNetworkQueue queue = resolvePlayerNetwork(server, sl, player, validSpeakers);
+		if (queue == null) {
+			queue = getPlayerNetwork(player.getUUID());
+			if (queue == null) {
+				queue = new SpeakerNetworkQueue(sl.dimension());
+				NETWORKS.put(queue.networkId, queue);
+				PLAYER_NETWORK.put(player.getUUID(), queue.networkId);
+			}
+		}
+
+		ServerQueueEntry newEntry = new ServerQueueEntry(
+				UUID.randomUUID(),
+				player.getUUID(),
+				player.getScoreboardName(),
+				payload.trackId(),
+				payload.trackTitle(),
+				payload.durationSeconds()
+		);
+
+		// 1. If this speaker network is completely idle, start playing immediately!
+		if (queue.activeEntry == null && !isAnySessionUsingSpeakersInNetwork(queue, null)) {
+			queue.skipVotes.clear();
+			queue.activeEntry = newEntry;
+			broadcastQueueSync(server, queue);
+			triggerQueueEntryPlayback(server, sl, queue, newEntry);
+			return;
+		}
+
+		// 2. If the requesting player is ALREADY the active DJ on this network and clicked directly on a track while queue is empty
+		if (queue.activeEntry != null
+				&& queue.activeEntry.ownerUuid.equals(player.getUUID())
+				&& payload.switchActiveIfOwner()
+				&& queue.waitingEntries.isEmpty()) {
+			queue.skipVotes.clear();
+			queue.activeEntry = newEntry;
+			broadcastQueueSync(server, queue);
+			triggerQueueEntryPlayback(server, sl, queue, newEntry);
+			return;
+		}
+
+		// 3. Otherwise, append to this speaker network's waiting queue so playbacks never overlap!
+		if (queue.waitingEntries.size() < Mp3Payloads.MAX_QUEUE_ENTRIES) {
+			queue.waitingEntries.addLast(newEntry);
+			broadcastQueueSync(server, queue);
+		}
+	}
+
+	private static void handleQueueAction(MinecraftServer server, ServerPlayer player, C2SQueueAction payload) {
+		if (!(player.level() instanceof ServerLevel sl)) {
+			return;
+		}
+		List<SpeakerTarget> validSpeakers = validateSpeakers(sl, player, payload.speakers());
+
+		if (payload.action() == QueueActionType.SYNC_SPEAKERS) {
+			SpeakerNetworkQueue queue = resolvePlayerNetwork(server, sl, player, validSpeakers);
+			if (queue != null) {
+				if (queue.activeEntry != null) {
+					ActiveSession activeSession = SESSIONS.get(queue.activeEntry.ownerUuid);
+					if (activeSession != null && sl.dimension().equals(activeSession.dimension)) {
+						updateSessionSpeakersFromPool(server, sl, queue, activeSession);
+					}
+				}
+				broadcastQueueSync(server, queue);
+			}
+			return;
+		}
+
+		SpeakerNetworkQueue queue = !validSpeakers.isEmpty()
+				? resolvePlayerNetwork(server, sl, player, validSpeakers)
+				: getPlayerNetwork(player.getUUID());
+		if (queue == null) {
+			return;
+		}
+
+		switch (payload.action()) {
+			case REMOVE_ENTRY -> {
+				if (payload.targetEntryId() == null || payload.targetEntryId().isEmpty()) {
+					return;
+				}
+				UUID targetId = payload.targetEntryId().get();
+				if (queue.activeEntry != null && queue.activeEntry.entryId.equals(targetId)) {
+					handleSkipVote(server, sl, queue, player);
+				} else {
+					boolean removed = false;
+					Iterator<ServerQueueEntry> it = queue.waitingEntries.iterator();
+					while (it.hasNext()) {
+						ServerQueueEntry entry = it.next();
+						if (entry.entryId.equals(targetId) && canModifyQueueEntry(player, entry)) {
+							it.remove();
+							removed = true;
+							break;
+						}
+					}
+					if (removed) {
+						checkSkipVoteAfterQueueChange(server, sl, queue);
+					}
+				}
+			}
+			case SKIP_CURRENT -> {
+				if (queue.activeEntry != null) {
+					handleSkipVote(server, sl, queue, player);
+				}
+			}
+			case ADVANCE_FINISHED -> {
+				if (queue.activeEntry != null && queue.activeEntry.ownerUuid.equals(player.getUUID())) {
+					if (payload.targetEntryId() == null
+							|| payload.targetEntryId().isEmpty()
+							|| payload.targetEntryId().get().equals(queue.activeEntry.entryId)) {
+						advanceQueue(server, sl, queue, false);
+					}
+				}
+			}
+			case CLEAR_ALL -> {
+				boolean isOp = player.permissions().hasPermission(net.minecraft.server.permissions.Permissions.COMMANDS_MODERATOR);
+				boolean changed;
+				if (isOp) {
+					changed = !queue.waitingEntries.isEmpty();
+					queue.waitingEntries.clear();
+				} else {
+					changed = queue.waitingEntries.removeIf(e -> player.getUUID().equals(e.ownerUuid));
+				}
+				if (changed) {
+					checkSkipVoteAfterQueueChange(server, sl, queue);
+				}
+			}
+			default -> {
+			}
+		}
+	}
+
+	/**
+	 * Handles a player's request to skip the currently playing speaker queue song.
+	 * If only 1 player has songs in the queue, skips immediately.
+	 * If multiple players have songs in the queue, requires all of them to vote before skipping.
+	 */
+	private static void handleSkipVote(
+			MinecraftServer server,
+			ServerLevel sl,
+			SpeakerNetworkQueue queue,
+			ServerPlayer player
+	) {
+		if (queue.activeEntry == null || player == null) {
+			return;
+		}
+		Set<UUID> participants = queue.getParticipants(server);
+		queue.skipVotes.retainAll(participants);
+
+		// Instant skip when only 1 player has songs in the queue
+		if (participants.size() <= 1) {
+			if (participants.isEmpty() || participants.contains(player.getUUID())) {
+				queue.skipVotes.clear();
+				advanceQueue(server, sl, queue, true);
+			}
+			return;
+		}
+
+		// Only players who have added songs to the queue can vote
+		if (!participants.contains(player.getUUID())) {
+			return;
+		}
+
+		queue.skipVotes.add(player.getUUID());
+		if (queue.skipVotes.containsAll(participants)) {
+			queue.skipVotes.clear();
+			advanceQueue(server, sl, queue, true);
+		} else {
+			broadcastQueueSync(server, queue);
+		}
+	}
+
+	private static void checkSkipVoteAfterQueueChange(
+			MinecraftServer server,
+			ServerLevel sl,
+			SpeakerNetworkQueue queue
+	) {
+		if (queue.activeEntry == null) {
+			queue.skipVotes.clear();
+			broadcastQueueSync(server, queue);
+			return;
+		}
+		Set<UUID> participants = queue.getParticipants(server);
+		queue.skipVotes.retainAll(participants);
+		if (!queue.skipVotes.isEmpty() && !participants.isEmpty() && queue.skipVotes.containsAll(participants)) {
+			queue.skipVotes.clear();
+			advanceQueue(server, sl, queue, true);
+		} else {
+			broadcastQueueSync(server, queue);
+		}
+	}
+
+	private static boolean canModifyQueueEntry(ServerPlayer player, ServerQueueEntry entry) {
+		if (player == null || entry == null) {
+			return false;
+		}
+		return player.getUUID().equals(entry.ownerUuid)
+				|| player.permissions().hasPermission(net.minecraft.server.permissions.Permissions.COMMANDS_MODERATOR);
+	}
+
+	private static void advanceQueue(
+			MinecraftServer server,
+			ServerLevel level,
+			SpeakerNetworkQueue queue,
+			boolean notifyOldOwnerToStop
+	) {
+		ServerQueueEntry oldActive = queue.activeEntry;
+		queue.activeEntry = null;
+		queue.skipVotes.clear();
+
+		if (oldActive != null) {
+			stopSessionFor(server, oldActive.ownerUuid, null, notifyOldOwnerToStop, false);
+		}
+
+		while (!queue.waitingEntries.isEmpty()) {
+			ServerQueueEntry next = queue.waitingEntries.pollFirst();
+			ServerPlayer nextOwner = server.getPlayerList().getPlayer(next.ownerUuid);
+			if (nextOwner != null && nextOwner.level() instanceof ServerLevel ownerLevel && ownerLevel.dimension().equals(queue.dimension)) {
+				next.triggeredAtMs = System.currentTimeMillis();
+				next.streamStarted = false;
+				next.paused = false;
+				queue.activeEntry = next;
+				broadcastQueueSync(server, queue);
+				triggerQueueEntryPlayback(server, ownerLevel, queue, next);
+				return;
+			}
+		}
+
+		broadcastQueueSync(server, queue);
+		if (queue.isEmptyNetwork()) {
+			NETWORKS.remove(queue.networkId, queue);
+		}
+	}
+
+	private static void triggerQueueEntryPlayback(
+			MinecraftServer server,
+			ServerLevel level,
+			SpeakerNetworkQueue queue,
+			ServerQueueEntry entry
+	) {
+		ServerPlayer targetPlayer = server.getPlayerList().getPlayer(entry.ownerUuid);
+		if (targetPlayer == null || !ServerPlayNetworking.canSend(targetPlayer, S2CQueuePlayTrigger.TYPE)) {
+			advanceQueue(server, level, queue, false);
+			return;
+		}
+		List<SpeakerTarget> combinedSpeakers = queue.computeCombinedSpeakers(level, entry.ownerUuid);
+		entry.triggeredAtMs = System.currentTimeMillis();
+		ServerPlayNetworking.send(targetPlayer, new S2CQueuePlayTrigger(
+				entry.entryId,
+				entry.trackId,
+				entry.trackTitle,
+				combinedSpeakers
+		));
+	}
+
+	private static void broadcastQueueSync(
+			MinecraftServer server,
+			SpeakerNetworkQueue queue
+	) {
+		if (server == null || queue == null) {
+			return;
+		}
+		S2CSpeakerQueueSync syncMsg = queue.buildSyncPayload(server, Optional.empty());
+		Set<UUID> recipients = new LinkedHashSet<>(queue.playerLinkedSpeakers.keySet());
+		recipients.addAll(queue.getParticipants(server));
+		for (Map.Entry<UUID, UUID> entry : PLAYER_NETWORK.entrySet()) {
+			if (queue.networkId.equals(entry.getValue())) {
+				recipients.add(entry.getKey());
+			}
+		}
+		for (UUID playerId : recipients) {
+			ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+			if (player != null
+					&& player.level().dimension().equals(queue.dimension)
+					&& ServerPlayNetworking.canSend(player, S2CSpeakerQueueSync.TYPE)) {
+				ServerPlayNetworking.send(player, syncMsg);
+			}
+		}
+	}
+
+	private static void updateSessionSpeakersFromPool(
+			MinecraftServer server,
+			ServerLevel level,
+			SpeakerNetworkQueue queue,
+			ActiveSession session
+	) {
+		List<SpeakerTarget> oldSpeakers = session.speakers;
+		List<SpeakerTarget> updated = queue.computeCombinedSpeakers(level, session.speakerUuid);
+		session.speakers = updated;
+
+		for (SpeakerTarget oldTarget : oldSpeakers) {
+			boolean stillPresent = false;
+			for (SpeakerTarget newTarget : updated) {
+				if (oldTarget.pos().equals(newTarget.pos())) {
+					stillPresent = true;
+					break;
+				}
+			}
+			if (!stillPresent && !isAnyOtherSessionUsingSpeaker(session, session.dimension, oldTarget.pos())) {
+				updateSpeakerBlockPlaying(server, session.dimension, oldTarget.pos(), false);
+			}
+		}
+		syncAllBlocksPlaying(server, session, !session.paused);
+		broadcastStateUpdate(server, session, true);
+	}
+
+	private static boolean isAnySessionUsingSpeakersInNetwork(SpeakerNetworkQueue queue, UUID excludingSpeakerUuid) {
+		if (queue == null) {
+			return false;
+		}
+		for (ActiveSession session : SESSIONS.values()) {
+			if (queue.dimension.equals(session.dimension)
+					&& (excludingSpeakerUuid == null || !excludingSpeakerUuid.equals(session.speakerUuid))
+					&& !session.speakers.isEmpty()
+					&& queue.isAnySpeakerInNetworkRadius(session.speakers, null)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static void handleStart(MinecraftServer server, ServerPlayer speaker, C2SStreamStart payload) {
-		stopSessionFor(server, speaker.getUUID(), null, false);
+		stopSessionFor(server, speaker.getUUID(), null, false, false);
 
 		if (!(speaker.level() instanceof ServerLevel sl)) {
 			return;
@@ -251,13 +1005,77 @@ public final class SpeakerRelayServer {
 					}
 				}
 				for (ActiveSession other : displaced) {
-					stopSessionFor(server, other.speakerUuid, other.streamId, true);
+					stopSessionFor(server, other.speakerUuid, other.streamId, true, true);
 				}
 			}
 		}
 
 		List<SpeakerTarget> validSpeakers = validateSpeakers(sl, speaker, payload.speakers());
 		boolean emitFromPlayer = payload.emitFromPlayer() && boomboxPos == null;
+
+		SpeakerNetworkQueue queue = !validSpeakers.isEmpty()
+				? resolvePlayerNetwork(server, sl, speaker, validSpeakers)
+				: getPlayerNetwork(speaker.getUUID());
+
+		// Prevent overlapping speaker playback if another player is already the active speaker DJ in THIS network!
+		boolean anotherPlayerOwnsSpeakers = queue != null
+				&& ((queue.activeEntry != null && !queue.activeEntry.ownerUuid.equals(speaker.getUUID()))
+				|| isAnySessionUsingSpeakersInNetwork(queue, speaker.getUUID()));
+
+		if (queue != null && !validSpeakers.isEmpty() && anotherPlayerOwnsSpeakers) {
+			if (boomboxPos == null && !emitFromPlayer) {
+				// Automatically place into this speaker network's queue and stop this overlapping stream
+				boolean alreadyQueued = false;
+				for (ServerQueueEntry qe : queue.waitingEntries) {
+					if (qe.ownerUuid.equals(speaker.getUUID()) && qe.trackTitle.equals(payload.trackTitle())) {
+						alreadyQueued = true;
+						break;
+					}
+				}
+				if (!alreadyQueued && queue.waitingEntries.size() < Mp3Payloads.MAX_QUEUE_ENTRIES) {
+					queue.waitingEntries.addLast(new ServerQueueEntry(
+							UUID.randomUUID(),
+							speaker.getUUID(),
+							speaker.getScoreboardName(),
+							payload.trackTitle(),
+							payload.trackTitle(),
+							0
+					));
+					broadcastQueueSync(server, queue);
+				}
+				if (ServerPlayNetworking.canSend(speaker, S2CStreamStop.TYPE)) {
+					ServerPlayNetworking.send(speaker, new S2CStreamStop(speaker.getUUID(), payload.streamId()));
+				}
+				return;
+			} else {
+				// Keep Boombox / Body speaker independent without overlapping onto the busy speaker network
+				validSpeakers = Collections.emptyList();
+			}
+		} else if (queue != null && (!validSpeakers.isEmpty() || (queue.activeEntry != null && queue.activeEntry.ownerUuid.equals(speaker.getUUID())))) {
+			List<SpeakerTarget> combined = queue.computeCombinedSpeakers(sl, speaker.getUUID());
+			if (!combined.isEmpty()) {
+				validSpeakers = combined;
+			}
+			if (!validSpeakers.isEmpty()) {
+				if (queue.activeEntry == null) {
+					queue.activeEntry = new ServerQueueEntry(
+							UUID.randomUUID(),
+							speaker.getUUID(),
+							speaker.getScoreboardName(),
+							payload.trackTitle(),
+							payload.trackTitle(),
+							0
+					);
+				}
+				if (queue.activeEntry.ownerUuid.equals(speaker.getUUID())) {
+					queue.activeEntry.trackTitle = payload.trackTitle();
+					queue.activeEntry.paused = false;
+					queue.activeEntry.streamStarted = true;
+					queue.activeEntry.triggeredAtMs = System.currentTimeMillis();
+				}
+				broadcastQueueSync(server, queue);
+			}
+		}
 
 		if (boomboxPos == null && !emitFromPlayer && validSpeakers.isEmpty()) {
 			if (ServerPlayNetworking.canSend(speaker, S2CStreamStop.TYPE)) {
@@ -279,6 +1097,19 @@ public final class SpeakerRelayServer {
 		);
 		SESSIONS.put(speaker.getUUID(), session);
 		syncAllBlocksPlaying(server, session, true);
+
+		// If combined speakers were added from the shared pool, notify the owner so their local 3D nodes match
+		if (!validSpeakers.equals(payload.speakers()) && ServerPlayNetworking.canSend(speaker, S2CStreamState.TYPE)) {
+			ServerPlayNetworking.send(speaker, new S2CStreamState(
+					session.speakerUuid,
+					session.streamId,
+					session.paused,
+					session.volume,
+					session.optionalBoomboxPos(),
+					session.emitFromPlayer,
+					session.speakers
+			));
+		}
 
 		for (ServerPlayer other : server.getPlayerList().getPlayers()) {
 			if (other.getUUID().equals(speaker.getUUID())) {
@@ -313,21 +1144,21 @@ public final class SpeakerRelayServer {
 
 		ServerLevel sourceLevel = server.getLevel(session.dimension);
 		if (sourceLevel == null) {
-			stopSessionFor(server, session.speakerUuid, session.streamId, true);
+			stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 			return;
 		}
 
 		if (session.boomboxPos != null
 				&& sourceLevel.isLoaded(session.boomboxPos)
 				&& !sourceLevel.getBlockState(session.boomboxPos).is(Mp3PlayerMod.BOOMBOX_BLOCK)) {
-			stopSessionFor(server, session.speakerUuid, session.streamId, true);
+			stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 			return;
 		}
 
 		// Prune any linked speaker blocks that were broken or replaced
 		pruneInvalidSpeakers(server, sourceLevel, session);
 		if (!session.hasAnyAudioSource()) {
-			stopSessionFor(server, session.speakerUuid, session.streamId, true);
+			stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 			return;
 		}
 
@@ -394,12 +1225,64 @@ public final class SpeakerRelayServer {
 
 		List<SpeakerTarget> oldSpeakers = session.speakers;
 		List<SpeakerTarget> newSpeakers = validateSpeakers(sourceLevel, speaker, payload.speakers());
+		SpeakerNetworkQueue queue = !newSpeakers.isEmpty()
+				? resolvePlayerNetwork(server, sourceLevel, speaker, newSpeakers)
+				: getPlayerNetwork(speaker.getUUID());
 
+		if (queue != null && newSpeakers.isEmpty()) {
+			queue.playerLinkedSpeakers.remove(speaker.getUUID());
+		}
+
+		boolean anotherPlayerOwnsSpeakers = queue != null
+				&& ((queue.activeEntry != null && !queue.activeEntry.ownerUuid.equals(speaker.getUUID()))
+				|| isAnySessionUsingSpeakersInNetwork(queue, speaker.getUUID()));
+
+		if (anotherPlayerOwnsSpeakers) {
+			newSpeakers = Collections.emptyList();
+			if (session.boomboxPos == null && ! payload.emitFromPlayer()) {
+				stopSessionFor(server, speaker.getUUID(), session.streamId, true, false);
+				if (queue != null) {
+					broadcastQueueSync(server, queue);
+				}
+				return;
+			}
+		} else if (queue != null && !newSpeakers.isEmpty()) {
+			newSpeakers = queue.computeCombinedSpeakers(sourceLevel, speaker.getUUID());
+		}
+
+		boolean pauseChanged = (session.paused != payload.paused());
 		session.paused = payload.paused();
 		session.volume = payload.volume();
 		session.emitFromPlayer = payload.emitFromPlayer() && session.boomboxPos == null;
 		session.speakers = newSpeakers;
 		session.lastChunkTimeMs = System.currentTimeMillis();
+
+		if (queue != null) {
+			if (queue.activeEntry != null && queue.activeEntry.ownerUuid.equals(speaker.getUUID())) {
+				if (newSpeakers.isEmpty() && queue.waitingEntries.isEmpty()) {
+					queue.activeEntry = null;
+					queue.skipVotes.clear();
+					broadcastQueueSync(server, queue);
+				} else {
+					queue.activeEntry.paused = session.paused;
+					if (pauseChanged) {
+						broadcastQueueSync(server, queue);
+					}
+				}
+			} else if (queue.activeEntry == null && !newSpeakers.isEmpty()) {
+				queue.activeEntry = new ServerQueueEntry(
+						UUID.randomUUID(),
+						speaker.getUUID(),
+						speaker.getScoreboardName(),
+						session.trackTitle,
+						session.trackTitle,
+						0
+				);
+				queue.activeEntry.paused = session.paused;
+				queue.activeEntry.streamStarted = true;
+				broadcastQueueSync(server, queue);
+			}
+		}
 
 		// Turn off any speakers that were unlinked/removed from this session
 		for (SpeakerTarget oldTarget : oldSpeakers) {
@@ -447,10 +1330,19 @@ public final class SpeakerRelayServer {
 			MinecraftServer server,
 			UUID speakerUuid,
 			UUID expectedStreamId,
-			boolean notifyOwner
+			boolean notifyOwner,
+			boolean advanceSpeakerQueue
 	) {
 		ActiveSession existing = SESSIONS.get(speakerUuid);
 		if (existing == null) {
+			if (advanceSpeakerQueue) {
+				for (SpeakerNetworkQueue q : new ArrayList<>(NETWORKS.values())) {
+					if (q.activeEntry != null && speakerUuid.equals(q.activeEntry.ownerUuid)) {
+						ServerLevel sl = server.getLevel(q.dimension);
+						advanceQueue(server, sl, q, false);
+					}
+				}
+			}
 			return;
 		}
 		if (expectedStreamId != null && !existing.streamId.equals(expectedStreamId)) {
@@ -478,6 +1370,17 @@ public final class SpeakerRelayServer {
 			ServerPlayer owner = server.getPlayerList().getPlayer(existing.speakerUuid);
 			if (owner != null && ServerPlayNetworking.canSend(owner, S2CStreamStop.TYPE)) {
 				ServerPlayNetworking.send(owner, stopMsg);
+			}
+		}
+
+		if (advanceSpeakerQueue) {
+			for (SpeakerNetworkQueue queue : new ArrayList<>(NETWORKS.values())) {
+				if (existing.dimension.equals(queue.dimension)
+						&& queue.activeEntry != null
+						&& speakerUuid.equals(queue.activeEntry.ownerUuid)) {
+					ServerLevel sl = server.getLevel(existing.dimension);
+					advanceQueue(server, sl, queue, false);
+				}
 			}
 		}
 	}
@@ -647,10 +1550,22 @@ public final class SpeakerRelayServer {
 
 	private static void onServerTick(MinecraftServer server) {
 		tickCounter++;
+		long now = System.currentTimeMillis();
+
+		// Check if any triggered queue entry failed to start streaming within 8 seconds
+		if (!NETWORKS.isEmpty()) {
+			for (SpeakerNetworkQueue queue : new ArrayList<>(NETWORKS.values())) {
+				ServerQueueEntry active = queue.activeEntry;
+				if (active != null && !active.streamStarted && (now - active.triggeredAtMs > 8_000L)) {
+					ServerLevel sl = server.getLevel(queue.dimension);
+					advanceQueue(server, sl, queue, true);
+				}
+			}
+		}
+
 		if (SESSIONS.isEmpty()) {
 			return;
 		}
-		long now = System.currentTimeMillis();
 		boolean spawnNotes = (tickCounter % 14) == 0;
 
 		List<ActiveSession> snapshot = new ArrayList<>(SESSIONS.values());
@@ -658,13 +1573,13 @@ public final class SpeakerRelayServer {
 			ServerPlayer speaker = server.getPlayerList().getPlayer(session.speakerUuid);
 
 			if (speaker == null || (!session.paused && now - session.lastChunkTimeMs > 12_000L)) {
-				stopSessionFor(server, session.speakerUuid, session.streamId, false);
+				stopSessionFor(server, session.speakerUuid, session.streamId, false, true);
 				continue;
 			}
 
 			ServerLevel sessionLevel = server.getLevel(session.dimension);
 			if (sessionLevel == null) {
-				stopSessionFor(server, session.speakerUuid, session.streamId, true);
+				stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 				continue;
 			}
 
@@ -673,7 +1588,7 @@ public final class SpeakerRelayServer {
 			if (session.boomboxPos != null) {
 				if (sessionLevel.isLoaded(session.boomboxPos)
 						&& !sessionLevel.getBlockState(session.boomboxPos).is(Mp3PlayerMod.BOOMBOX_BLOCK)) {
-					stopSessionFor(server, session.speakerUuid, session.streamId, true);
+					stopSessionFor(server, session.speakerUuid, session.streamId, true, true);
 					continue;
 				}
 				if (spawnNotes && !session.paused && session.volume > 0.01f && sessionLevel.isLoaded(session.boomboxPos)) {

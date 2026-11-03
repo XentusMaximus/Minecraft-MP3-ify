@@ -9,10 +9,16 @@ import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
 import de.vibecoded.mp3player.network.Mp3Payloads;
+import de.vibecoded.mp3player.network.Mp3Payloads.C2SQueueAction;
+import de.vibecoded.mp3player.network.Mp3Payloads.C2SQueueAdd;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamChunk;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStart;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SStreamStop;
+import de.vibecoded.mp3player.network.Mp3Payloads.QueueActionType;
+import de.vibecoded.mp3player.network.Mp3Payloads.QueueEntryInfo;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CQueuePlayTrigger;
+import de.vibecoded.mp3player.network.Mp3Payloads.S2CSpeakerQueueSync;
 import de.vibecoded.mp3player.network.Mp3Payloads.S2CStreamState;
 import de.vibecoded.mp3player.network.Mp3Payloads.SpeakerTarget;
 import java.io.IOException;
@@ -125,6 +131,14 @@ public final class Mp3AudioController {
 	// Speaker-System-Only target mode (when true, primary headphones are muted and audio emanates purely from linked 3D speakers)
 	private boolean speakerSystemMode = false;
 
+	// Shared Speaker Playback Queue state (synced from server, or local fallback on unmodded servers)
+	private volatile List<QueueEntryInfo> serverSpeakerQueue = Collections.emptyList();
+	private volatile int serverSkipVotes = 0;
+	private volatile int serverRequiredSkipVotes = 0;
+	private volatile Set<UUID> serverSkipVoters = Collections.emptySet();
+	private final Deque<Mp3TrackInfo> localFallbackQueue = new ArrayDeque<>();
+	private UUID activeQueueEntryId;
+
 	// Outgoing 3D Opus network stream state
 	private UUID activeStreamId;
 	private Opus3dBroadcaster opusBroadcaster;
@@ -196,11 +210,365 @@ public final class Mp3AudioController {
 			if (alChannel != null) {
 				alChannel.setPositional3D(false);
 			}
+			sendSyncSpeakersToServer();
+			if (currentTrack != null && alChannel != null && isAnotherPlayerPlayingOnSpeakers()) {
+				// Do not overlap with another player's active speaker stream; enqueue our track instead!
+				Mp3TrackInfo toQueue = currentTrack;
+				stopLocalAndNetwork(false);
+				currentTrack = null;
+				paused = false;
+				seekBaseSeconds = 0.0;
+				enqueueTrackOnSpeakers(toQueue, false);
+				return;
+			}
 		} else {
 			this.speakerSystemMode = false;
+			closeAllSpeakerNodes();
 		}
 		refreshImmediateGain(Minecraft.getInstance());
 		syncNetworkStreamWithCurrentTargets();
+	}
+
+	// ===================== SPEAKER PLAYBACK QUEUE =====================
+
+	public List<QueueEntryInfo> speakerQueueEntries() {
+		if (isServerSupporting3D()) {
+			return serverSpeakerQueue;
+		}
+		if (localFallbackQueue.isEmpty() && (!isSpeakerSystemMode() || currentTrack == null)) {
+			return Collections.emptyList();
+		}
+		Minecraft mc = Minecraft.getInstance();
+		UUID myUuid = (mc != null && mc.player != null) ? mc.player.getUUID() : new UUID(0L, 0L);
+		String myName = (mc != null && mc.player != null) ? mc.player.getScoreboardName() : "Player";
+		List<QueueEntryInfo> list = new ArrayList<>(1 + localFallbackQueue.size());
+		if (isSpeakerSystemMode() && currentTrack != null) {
+			list.add(new QueueEntryInfo(
+					activeQueueEntryId != null ? activeQueueEntryId : new UUID(0L, 1L),
+					myUuid,
+					myName,
+					trackKey(currentTrack),
+					currentTrack.fullDisplayLabel(),
+					currentTrack.durationSeconds(),
+					true,
+					paused
+			));
+		}
+		long idx = 2L;
+		for (Mp3TrackInfo queued : localFallbackQueue) {
+			list.add(new QueueEntryInfo(
+					new UUID(0L, idx++),
+					myUuid,
+					myName,
+					trackKey(queued),
+					queued.fullDisplayLabel(),
+					queued.durationSeconds(),
+					false,
+					false
+			));
+		}
+		return list;
+	}
+
+	public int speakerQueueSize() {
+		return speakerQueueEntries().size();
+	}
+
+	public int waitingSpeakerQueueCount() {
+		int count = 0;
+		for (QueueEntryInfo entry : speakerQueueEntries()) {
+			if (!entry.nowPlaying()) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	public QueueEntryInfo activeSpeakerQueueEntry() {
+		for (QueueEntryInfo entry : speakerQueueEntries()) {
+			if (entry.nowPlaying()) {
+				return entry;
+			}
+		}
+		return null;
+	}
+
+	public boolean isAnotherPlayerPlayingOnSpeakers() {
+		Minecraft mc = Minecraft.getInstance();
+		UUID myUuid = (mc != null && mc.player != null) ? mc.player.getUUID() : null;
+		QueueEntryInfo active = activeSpeakerQueueEntry();
+		return active != null && myUuid != null && !myUuid.equals(active.ownerUuid());
+	}
+
+	public boolean isLocalPlayerActiveSpeakerDj() {
+		Minecraft mc = Minecraft.getInstance();
+		UUID myUuid = (mc != null && mc.player != null) ? mc.player.getUUID() : null;
+		QueueEntryInfo active = activeSpeakerQueueEntry();
+		return active != null && myUuid != null && myUuid.equals(active.ownerUuid());
+	}
+
+	public boolean isLocalPlayerInQueue() {
+		Minecraft mc = Minecraft.getInstance();
+		UUID myUuid = (mc != null && mc.player != null) ? mc.player.getUUID() : null;
+		if (myUuid == null) {
+			return false;
+		}
+		for (QueueEntryInfo entry : speakerQueueEntries()) {
+			if (myUuid.equals(entry.ownerUuid())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public int skipVoteCount() {
+		return isServerSupporting3D() ? serverSkipVotes : 0;
+	}
+
+	public int requiredSkipVotes() {
+		if (isServerSupporting3D()) {
+			if (serverRequiredSkipVotes > 0) {
+				return serverRequiredSkipVotes;
+			}
+			Set<UUID> owners = new HashSet<>();
+			for (QueueEntryInfo entry : serverSpeakerQueue) {
+				owners.add(entry.ownerUuid());
+			}
+			return owners.size();
+		}
+		return speakerQueueSize() > 0 ? 1 : 0;
+	}
+
+	public boolean hasPlayerVotedSkip(UUID playerUuid) {
+		return playerUuid != null && serverSkipVoters.contains(playerUuid);
+	}
+
+	public boolean hasLocalPlayerVotedSkip() {
+		Minecraft mc = Minecraft.getInstance();
+		return mc != null && mc.player != null && hasPlayerVotedSkip(mc.player.getUUID());
+	}
+
+	/**
+	 * Adds a track to the shared Speaker Playback Queue (or starts playing it immediately
+	 * on the speakers if the queue is currently idle).
+	 * Returns true if the track was queued behind an existing track, or false if it started immediately.
+	 */
+	public boolean enqueueTrackOnSpeakers(Mp3TrackInfo track, boolean switchActiveIfOwner) {
+		if (track == null) {
+			return false;
+		}
+		this.activeBoomboxPos = null;
+		this.activeBoomboxDimension = null;
+		this.speakerSystemMode = true;
+		if (!config.linkedSpeakersEnabled()) {
+			config.setLinkedSpeakersEnabled(true);
+			config.save();
+		}
+
+		Minecraft mc = Minecraft.getInstance();
+		if (totalLinkedSpeakerCount() == 0 && mc != null && mc.level != null && mc.player != null) {
+			scanAndLinkNearbySpeakers(mc.level, mc.player.blockPosition(), DEFAULT_SPEAKER_SCAN_RADIUS);
+		}
+
+		if (isServerSupporting3D()) {
+			boolean willQueue = activeSpeakerQueueEntry() != null
+					&& (!isLocalPlayerActiveSpeakerDj() || !switchActiveIfOwner || waitingSpeakerQueueCount() > 0);
+			ClientPlayNetworking.send(new C2SQueueAdd(
+					trackKey(track),
+					track.fullDisplayLabel(),
+					track.durationSeconds(),
+					switchActiveIfOwner,
+					buildActiveSpeakerTargets()
+			));
+			return willQueue;
+		}
+
+		// Local fallback when on an unmodded server
+		if (!hasActiveTrack() || (switchActiveIfOwner && localFallbackQueue.isEmpty())) {
+			playTrackInternal(track, 0.0, true);
+			return false;
+		} else {
+			if (localFallbackQueue.size() < Mp3Payloads.MAX_QUEUE_ENTRIES) {
+				localFallbackQueue.addLast(track);
+			}
+			return true;
+		}
+	}
+
+	public void removeSpeakerQueueEntry(UUID entryId) {
+		if (entryId == null) {
+			return;
+		}
+		if (isServerSupporting3D()) {
+			ClientPlayNetworking.send(new C2SQueueAction(
+					QueueActionType.REMOVE_ENTRY,
+					Optional.of(entryId),
+					buildActiveSpeakerTargets()
+			));
+		} else {
+			long idx = 2L;
+			Iterator<Mp3TrackInfo> it = localFallbackQueue.iterator();
+			while (it.hasNext()) {
+				it.next();
+				if (entryId.equals(new UUID(0L, idx++))) {
+					it.remove();
+					break;
+				}
+			}
+		}
+	}
+
+	public void skipSpeakerQueueTrack() {
+		if (isServerSupporting3D()) {
+			ClientPlayNetworking.send(new C2SQueueAction(
+					QueueActionType.SKIP_CURRENT,
+					Optional.empty(),
+					buildActiveSpeakerTargets()
+			));
+		} else if (!localFallbackQueue.isEmpty()) {
+			Mp3TrackInfo next = localFallbackQueue.pollFirst();
+			if (next != null) {
+				playTrackInternal(next, 0.0, true);
+			}
+		} else {
+			stop();
+		}
+	}
+
+	public void clearSpeakerQueue() {
+		localFallbackQueue.clear();
+		if (isServerSupporting3D()) {
+			ClientPlayNetworking.send(new C2SQueueAction(
+					QueueActionType.CLEAR_ALL,
+					Optional.empty(),
+					buildActiveSpeakerTargets()
+			));
+		}
+	}
+
+	public void sendSyncSpeakersToServer() {
+		if (isServerSupporting3D()) {
+			ClientPlayNetworking.send(new C2SQueueAction(
+					QueueActionType.SYNC_SPEAKERS,
+					Optional.empty(),
+					buildActiveSpeakerTargets()
+			));
+		}
+	}
+
+	public void onServerQueueSync(S2CSpeakerQueueSync payload) {
+		if (payload == null) {
+			this.serverSpeakerQueue = Collections.emptyList();
+			this.serverSkipVotes = 0;
+			this.serverRequiredSkipVotes = 0;
+			this.serverSkipVoters = Collections.emptySet();
+		} else {
+			this.serverSpeakerQueue = payload.entries() != null ? payload.entries() : Collections.emptyList();
+			this.serverSkipVotes = Math.max(0, payload.skipVotes());
+			this.serverRequiredSkipVotes = Math.max(0, payload.requiredSkipVotes());
+			this.serverSkipVoters = payload.skipVoterUuids() != null && !payload.skipVoterUuids().isEmpty()
+					? Set.copyOf(payload.skipVoterUuids())
+					: Collections.emptySet();
+
+			if (payload.retainedSpeakers() != null && payload.retainedSpeakers().isPresent()) {
+				Minecraft mc = Minecraft.getInstance();
+				if (mc != null && mc.level != null) {
+					ResourceKey<Level> dim = mc.level.dimension();
+					Set<BlockPos> keep = new HashSet<>(payload.retainedSpeakers().get());
+					List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
+					if (modifiable.removeIf(ls -> dim.equals(ls.dimension()) && !keep.contains(ls.pos()))) {
+						config.setLinkedSpeakers(modifiable);
+						syncLocalSpeakerNodes(mc);
+					}
+				}
+			}
+		}
+
+		// If we were playing in Speaker System Mode, but another player is now the active DJ (or queue was cleared/skipped),
+		// ensure we stop any local speaker playback immediately so we never overlap!
+		if (isSpeakerSystemMode() && hasActiveTrack() && !isLocalPlayerActiveSpeakerDj() && isAnotherPlayerPlayingOnSpeakers()) {
+			stopLocalAndNetwork(false);
+			currentTrack = null;
+			paused = false;
+			seekBaseSeconds = 0.0;
+			activeQueueEntryId = null;
+		}
+	}
+
+	public void onServerQueuePlayTrigger(S2CQueuePlayTrigger payload) {
+		if (payload == null) {
+			return;
+		}
+		library.refresh();
+		Mp3TrackInfo match = findTrackByKeyOrTitle(payload.trackId(), payload.trackTitle());
+		if (match == null) {
+			if (isServerSupporting3D()) {
+				ClientPlayNetworking.send(new C2SQueueAction(
+						QueueActionType.ADVANCE_FINISHED,
+						Optional.of(payload.entryId()),
+						buildActiveSpeakerTargets()
+				));
+			}
+			return;
+		}
+
+		Minecraft mc = Minecraft.getInstance();
+		if (mc != null && mc.level != null && payload.speakers() != null && !payload.speakers().isEmpty()) {
+			ResourceKey<Level> dim = mc.level.dimension();
+			List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
+			boolean changed = false;
+			for (SpeakerTarget st : payload.speakers()) {
+				boolean exists = false;
+				for (LinkedSpeaker ls : modifiable) {
+					if (dim.equals(ls.dimension()) && st.pos().equals(ls.pos())) {
+						exists = true;
+						break;
+					}
+				}
+				if (!exists && modifiable.size() < Mp3Payloads.MAX_LINKED_SPEAKERS) {
+					modifiable.add(new LinkedSpeaker(dim, st.pos(), true, st.volume()));
+					changed = true;
+				}
+			}
+			if (changed) {
+				config.setLinkedSpeakers(modifiable);
+			}
+		}
+
+		this.activeBoomboxPos = null;
+		this.activeBoomboxDimension = null;
+		this.speakerSystemMode = true;
+		this.activeQueueEntryId = payload.entryId();
+		if (!config.linkedSpeakersEnabled()) {
+			config.setLinkedSpeakersEnabled(true);
+		}
+		playTrackInternal(match, 0.0, true);
+	}
+
+	private static String trackKey(Mp3TrackInfo track) {
+		if (track == null || track.file() == null) {
+			return "";
+		}
+		return track.file().getFileName().toString();
+	}
+
+	private Mp3TrackInfo findTrackByKeyOrTitle(String key, String title) {
+		List<Mp3TrackInfo> tracks = library.tracks();
+		if (key != null && !key.isBlank()) {
+			for (Mp3TrackInfo t : tracks) {
+				if (key.equalsIgnoreCase(trackKey(t)) || key.equalsIgnoreCase(t.file().toString())) {
+					return t;
+				}
+			}
+		}
+		if (title != null && !title.isBlank()) {
+			for (Mp3TrackInfo t : tracks) {
+				if (title.equalsIgnoreCase(t.fullDisplayLabel()) || title.equalsIgnoreCase(t.displayTitle())) {
+					return t;
+				}
+			}
+		}
+		return null;
 	}
 
 	// ===================== LINKED SPEAKER MANAGEMENT =====================
@@ -290,6 +658,9 @@ public final class Mp3AudioController {
 		if (!config.linkedSpeakersEnabled()) {
 			config.setLinkedSpeakersEnabled(true);
 		}
+		if (!isBoomboxActive() && !config.speaker3dMode()) {
+			this.speakerSystemMode = true;
+		}
 		List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
 		for (int i = 0; i < modifiable.size(); i++) {
 			LinkedSpeaker existing = modifiable.get(i);
@@ -298,18 +669,40 @@ public final class Mp3AudioController {
 					modifiable.set(i, new LinkedSpeaker(dimension, pos, true, existing.volume()));
 					config.setLinkedSpeakers(modifiable);
 					config.save();
+					sendSyncSpeakersToServer();
 					syncSpeakersDuringPlaybackNow();
 					syncNetworkStreamWithCurrentTargets();
 				}
 				return true;
 			}
 		}
+
+		// If the newly linked speaker is outside the scan radius (96 blocks) of all previously
+		// linked speakers in this dimension, switch cleanly to the new speaker network!
+		double maxNetDistSqr = (double) DEFAULT_SPEAKER_SCAN_RADIUS * (double) DEFAULT_SPEAKER_SCAN_RADIUS;
+		boolean hasAnyInDim = false;
+		boolean withinExistingNet = false;
+		for (LinkedSpeaker existing : modifiable) {
+			if (dimension.equals(existing.dimension())) {
+				hasAnyInDim = true;
+				if (existing.pos().distSqr(pos) <= maxNetDistSqr) {
+					withinExistingNet = true;
+					break;
+				}
+			}
+		}
+		if (hasAnyInDim && !withinExistingNet) {
+			modifiable.removeIf(ls -> dimension.equals(ls.dimension()));
+			closeAllSpeakerNodes();
+		}
+
 		if (modifiable.size() >= Mp3Payloads.MAX_LINKED_SPEAKERS) {
 			return false;
 		}
 		modifiable.add(new LinkedSpeaker(dimension, pos.immutable(), true, 1.0f));
 		config.setLinkedSpeakers(modifiable);
 		config.save();
+		sendSyncSpeakersToServer();
 		syncSpeakersDuringPlaybackNow();
 		syncNetworkStreamWithCurrentTargets();
 		return true;
@@ -328,6 +721,7 @@ public final class Mp3AudioController {
 			if (node != null) {
 				node.close();
 			}
+			sendSyncSpeakersToServer();
 			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
 		}
@@ -359,6 +753,7 @@ public final class Mp3AudioController {
 			} else {
 				syncSpeakersDuringPlaybackNow();
 			}
+			sendSyncSpeakersToServer();
 			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
 		}
@@ -390,6 +785,7 @@ public final class Mp3AudioController {
 				if (node != null) {
 					node.volume = nextVol;
 				}
+				sendSyncSpeakersToServer();
 				refreshImmediateGain(Minecraft.getInstance());
 				syncNetworkStreamWithCurrentTargets();
 				break;
@@ -413,6 +809,7 @@ public final class Mp3AudioController {
 			if (speakerSystemMode) {
 				speakerSystemMode = false;
 			}
+			sendSyncSpeakersToServer();
 			refreshImmediateGain(Minecraft.getInstance());
 			syncNetworkStreamWithCurrentTargets();
 		}
@@ -424,6 +821,12 @@ public final class Mp3AudioController {
 	public void resetLinkedSpeakers() {
 		closeAllSpeakerNodes();
 		config.setLinkedSpeakers(Collections.emptyList());
+		serverSpeakerQueue = Collections.emptyList();
+		serverSkipVotes = 0;
+		serverRequiredSkipVotes = 0;
+		serverSkipVoters = Collections.emptySet();
+		localFallbackQueue.clear();
+		activeQueueEntryId = null;
 		if (speakerSystemMode) {
 			speakerSystemMode = false;
 		}
@@ -441,8 +844,12 @@ public final class Mp3AudioController {
 				speakerSystemMode = false;
 			}
 		} else {
+			if (!isBoomboxActive() && !config.speaker3dMode()) {
+				speakerSystemMode = true;
+			}
 			syncSpeakersDuringPlaybackNow();
 		}
+		sendSyncSpeakersToServer();
 		refreshImmediateGain(Minecraft.getInstance());
 		syncNetworkStreamWithCurrentTargets();
 	}
@@ -526,6 +933,30 @@ public final class Mp3AudioController {
 		found.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
 
 		List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
+		if (!found.isEmpty()) {
+			double maxNetDistSqr = (double) DEFAULT_SPEAKER_SCAN_RADIUS * (double) DEFAULT_SPEAKER_SCAN_RADIUS;
+			boolean hasAnyInDim = false;
+			boolean overlapsExistingNet = false;
+			for (LinkedSpeaker existing : modifiable) {
+				if (dimension.equals(existing.dimension())) {
+					hasAnyInDim = true;
+					for (BlockPos pos : found) {
+						if (existing.pos().distSqr(pos) <= maxNetDistSqr) {
+							overlapsExistingNet = true;
+							break;
+						}
+					}
+					if (overlapsExistingNet) {
+						break;
+					}
+				}
+			}
+			if (hasAnyInDim && !overlapsExistingNet) {
+				modifiable.removeIf(ls -> dimension.equals(ls.dimension()));
+				closeAllSpeakerNodes();
+			}
+		}
+
 		int added = 0;
 		for (BlockPos pos : found) {
 			if (modifiable.size() >= Mp3Payloads.MAX_LINKED_SPEAKERS) {
@@ -548,8 +979,12 @@ public final class Mp3AudioController {
 			if (!config.linkedSpeakersEnabled()) {
 				config.setLinkedSpeakersEnabled(true);
 			}
+			if (!isBoomboxActive() && !config.speaker3dMode()) {
+				this.speakerSystemMode = true;
+			}
 			config.setLinkedSpeakers(modifiable);
 			config.save();
+			sendSyncSpeakersToServer();
 			syncSpeakersDuringPlaybackNow();
 			syncNetworkStreamWithCurrentTargets();
 		}
@@ -571,14 +1006,7 @@ public final class Mp3AudioController {
 	}
 
 	public void playTrackOnSpeakers(Mp3TrackInfo track) {
-		this.activeBoomboxPos = null;
-		this.activeBoomboxDimension = null;
-		this.speakerSystemMode = true;
-		if (!config.linkedSpeakersEnabled()) {
-			config.setLinkedSpeakersEnabled(true);
-			config.save();
-		}
-		playTrackInternal(track, 0.0, true);
+		enqueueTrackOnSpeakers(track, true);
 	}
 
 	public void togglePlayPauseOnSpeakers() {
@@ -595,12 +1023,7 @@ public final class Mp3AudioController {
 				return;
 			}
 			setPaused(!paused);
-			return;
 		}
-		this.activeBoomboxPos = null;
-		this.activeBoomboxDimension = null;
-		this.speakerSystemMode = true;
-		togglePlayPause();
 	}
 
 	public boolean isServerSupporting3D() {
@@ -636,6 +1059,10 @@ public final class Mp3AudioController {
 	}
 
 	public void playTrack(Mp3TrackInfo track) {
+		if (isSpeakerSystemMode()) {
+			enqueueTrackOnSpeakers(track, true);
+			return;
+		}
 		playTrackInternal(track, 0.0, true);
 	}
 
@@ -712,19 +1139,23 @@ public final class Mp3AudioController {
 			if (paused) {
 				setPaused(false);
 			}
-			return;
 		}
-		this.activeBoomboxPos = pos.immutable();
-		this.activeBoomboxDimension = dimension;
-		this.speakerSystemMode = false;
-		togglePlayPause();
+	}
+
+	public boolean shouldUseLinkedSpeakers() {
+		if (!config.linkedSpeakersEnabled() || activeLinkedSpeakerCount() <= 0) {
+			return false;
+		}
+		if (isAnotherPlayerPlayingOnSpeakers()) {
+			return false;
+		}
+		return isSpeakerSystemMode() || isBoomboxActive() || config.speaker3dMode();
 	}
 
 	private boolean shouldBroadcastNetwork3D() {
 		return isBoomboxActive()
-				|| isSpeakerSystemMode()
 				|| config.speaker3dMode()
-				|| activeLinkedSpeakerCount() > 0;
+				|| shouldUseLinkedSpeakers();
 	}
 
 	private boolean shouldEmitFromPlayerBody() {
@@ -752,6 +1183,10 @@ public final class Mp3AudioController {
 			}
 		}
 		return targets;
+	}
+
+	private List<SpeakerTarget> buildActiveSpeakerTargetsForStream() {
+		return shouldUseLinkedSpeakers() ? buildActiveSpeakerTargets() : Collections.emptyList();
 	}
 
 	private void syncNetworkStreamWithCurrentTargets() {
@@ -823,15 +1258,6 @@ public final class Mp3AudioController {
 	public void togglePlayPause() {
 		if (currentTrack != null && alChannel != null) {
 			setPaused(!paused);
-			return;
-		}
-		List<Mp3TrackInfo> tracks = library.tracks();
-		if (!tracks.isEmpty()) {
-			if (config.shuffle()) {
-				playTrack(tracks.get(random.nextInt(tracks.size())));
-			} else {
-				playTrack(tracks.getFirst());
-			}
 		}
 	}
 
@@ -852,12 +1278,13 @@ public final class Mp3AudioController {
 		seekBaseSeconds = 0.0;
 		activeBoomboxPos = null;
 		activeBoomboxDimension = null;
+		activeQueueEntryId = null;
 		speakerSystemMode = false;
 	}
 
 	/**
-	 * Invoked when the server terminates our active stream (e.g. placed Boombox was broken
-	 * or another player took over that Boombox).
+	 * Invoked when the server terminates our active stream (e.g. placed Boombox was broken,
+	 * another player took over that Boombox, or our speaker queue track was skipped).
 	 */
 	public boolean onServerStoppedStream(UUID stoppedStreamId) {
 		if (activeStreamId == null || !activeStreamId.equals(stoppedStreamId)) {
@@ -870,7 +1297,7 @@ public final class Mp3AudioController {
 			seekBaseSeconds = 0.0;
 			activeBoomboxPos = null;
 			activeBoomboxDimension = null;
-			speakerSystemMode = false;
+			activeQueueEntryId = null;
 		} else {
 			stopOutgoing3dStream(false);
 		}
@@ -878,7 +1305,8 @@ public final class Mp3AudioController {
 	}
 
 	/**
-	 * Invoked when the server notifies us that one or more of our linked speaker blocks were broken.
+	 * Invoked when the server notifies us that one or more of our linked speaker blocks were broken
+	 * or new speakers were linked into the shared speaker pool.
 	 */
 	public void onServerUpdatedStreamState(S2CStreamState payload) {
 		if (activeStreamId == null || !activeStreamId.equals(payload.streamId())) {
@@ -890,23 +1318,37 @@ public final class Mp3AudioController {
 		}
 		ResourceKey<Level> dim = mc.level.dimension();
 		Set<BlockPos> serverActivePositions = new HashSet<>();
+		List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
+		boolean changed = false;
+
 		if (payload.speakers() != null) {
 			for (SpeakerTarget st : payload.speakers()) {
 				serverActivePositions.add(st.pos());
+				boolean exists = false;
+				for (LinkedSpeaker ls : modifiable) {
+					if (dim.equals(ls.dimension()) && st.pos().equals(ls.pos())) {
+						exists = true;
+						break;
+					}
+				}
+				if (!exists && modifiable.size() < Mp3Payloads.MAX_LINKED_SPEAKERS) {
+					modifiable.add(new LinkedSpeaker(dim, st.pos(), true, st.volume()));
+					changed = true;
+				}
 			}
 		}
-		List<LinkedSpeaker> modifiable = new ArrayList<>(config.linkedSpeakers());
-		boolean changed = modifiable.removeIf(ls ->
+
+		boolean removedBroken = modifiable.removeIf(ls ->
 				dim.equals(ls.dimension())
 						&& ls.enabled()
 						&& ls.volume() > 0.001f
 						&& !serverActivePositions.contains(ls.pos())
 						&& mc.level.isLoaded(ls.pos())
 						&& !mc.level.getBlockState(ls.pos()).is(Mp3PlayerMod.SPEAKER_BLOCK));
-		if (changed) {
+		if (changed || removedBroken) {
 			config.setLinkedSpeakers(modifiable);
 			config.save();
-			syncLocalSpeakerNodes(mc);
+			syncSpeakersDuringPlaybackNow();
 		}
 	}
 
@@ -922,6 +1364,13 @@ public final class Mp3AudioController {
 	}
 
 	public void nextTrack() {
+		if (isSpeakerSystemMode() && (waitingSpeakerQueueCount() > 0 || isAnotherPlayerPlayingOnSpeakers())) {
+			skipSpeakerQueueTrack();
+			return;
+		}
+		if (currentTrack == null) {
+			return;
+		}
 		List<Mp3TrackInfo> tracks = library.tracks();
 		if (tracks.isEmpty()) {
 			stop();
@@ -936,17 +1385,20 @@ public final class Mp3AudioController {
 			return;
 		}
 
-		int idx = currentTrack != null ? findTrackIndex(tracks, currentTrack) : -1;
+		int idx = findTrackIndex(tracks, currentTrack);
 		int nextIdx = (idx + 1) % tracks.size();
 		playTrack(tracks.get(nextIdx));
 	}
 
 	public void previousTrack() {
+		if (currentTrack == null) {
+			return;
+		}
 		List<Mp3TrackInfo> tracks = library.tracks();
 		if (tracks.isEmpty()) {
 			return;
 		}
-		if (currentTrack != null && currentPositionSeconds() > 3) {
+		if (currentPositionSeconds() > 3) {
 			seek(0.0);
 			return;
 		}
@@ -1037,7 +1489,7 @@ public final class Mp3AudioController {
 	}
 
 	private void syncLocalSpeakerNodes(Minecraft client) {
-		if (client == null || client.level == null || !config.linkedSpeakersEnabled()) {
+		if (client == null || client.level == null || !shouldUseLinkedSpeakers()) {
 			closeAllSpeakerNodes();
 			return;
 		}
@@ -1219,6 +1671,63 @@ public final class Mp3AudioController {
 
 	private void onTrackNaturallyFinished() {
 		Mp3TrackInfo finishedTrack = this.currentTrack;
+		UUID finishedQueueId = this.activeQueueEntryId;
+		boolean wasSpeakerMode = isSpeakerSystemMode() || finishedQueueId != null;
+
+		if (wasSpeakerMode && isServerSupporting3D()) {
+			stopLocalAndNetwork(false);
+			if (waitingSpeakerQueueCount() > 0) {
+				this.currentTrack = null;
+				this.paused = false;
+				this.seekBaseSeconds = 0.0;
+				this.activeQueueEntryId = null;
+				ClientPlayNetworking.send(new C2SQueueAction(
+						QueueActionType.ADVANCE_FINISHED,
+						Optional.ofNullable(finishedQueueId),
+						buildActiveSpeakerTargets()
+				));
+				return;
+			}
+			if (finishedTrack != null && config.loopMode() == LoopMode.ONE) {
+				enqueueTrackOnSpeakers(finishedTrack, true);
+				return;
+			}
+			List<Mp3TrackInfo> tracks = library.tracks();
+			if (finishedTrack != null && !tracks.isEmpty() && (config.loopMode() == LoopMode.ALL || config.shuffle())) {
+				if (config.shuffle() && tracks.size() > 1) {
+					Mp3TrackInfo candidate = finishedTrack;
+					for (int tries = 0; tries < 6 && candidate != null && candidate.equals(finishedTrack); tries++) {
+						candidate = tracks.get(random.nextInt(tracks.size()));
+					}
+					enqueueTrackOnSpeakers(candidate != null ? candidate : tracks.getFirst(), true);
+				} else {
+					int idx = findTrackIndex(tracks, finishedTrack);
+					int nextIdx = (idx + 1) % tracks.size();
+					enqueueTrackOnSpeakers(tracks.get(nextIdx), true);
+				}
+				return;
+			}
+			this.currentTrack = null;
+			this.paused = false;
+			this.seekBaseSeconds = 0.0;
+			this.activeQueueEntryId = null;
+			ClientPlayNetworking.send(new C2SQueueAction(
+					QueueActionType.ADVANCE_FINISHED,
+					Optional.ofNullable(finishedQueueId),
+					buildActiveSpeakerTargets()
+			));
+			return;
+		}
+
+		if (wasSpeakerMode && !localFallbackQueue.isEmpty()) {
+			stopLocalAndNetwork(true);
+			Mp3TrackInfo nextQueued = localFallbackQueue.pollFirst();
+			if (nextQueued != null) {
+				playTrackInternal(nextQueued, 0.0, true);
+				return;
+			}
+		}
+
 		stopLocalAndNetwork(true);
 
 		List<Mp3TrackInfo> tracks = library.tracks();
@@ -1268,7 +1777,7 @@ public final class Mp3AudioController {
 				config.volume(),
 				Optional.ofNullable(activeBoomboxPos),
 				shouldEmitFromPlayerBody(),
-				buildActiveSpeakerTargets()
+				buildActiveSpeakerTargetsForStream()
 		));
 	}
 
@@ -1281,7 +1790,7 @@ public final class Mp3AudioController {
 					config.volume(),
 					Optional.ofNullable(activeBoomboxPos),
 					shouldEmitFromPlayerBody(),
-					buildActiveSpeakerTargets()
+					buildActiveSpeakerTargetsForStream()
 			));
 		}
 	}

@@ -8,9 +8,11 @@ import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.client.config.Mp3Config.LinkedSpeaker;
 import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
+import de.vibecoded.mp3player.network.Mp3Payloads.QueueEntryInfo;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -34,7 +36,8 @@ public class Mp3PlayerScreen extends Screen {
 
 	private enum ViewTab {
 		TRACKS,
-		SPEAKERS
+		SPEAKERS,
+		QUEUE
 	}
 
 	private final Mp3AudioController controller;
@@ -66,10 +69,17 @@ public class Mp3PlayerScreen extends Screen {
 	private Button refreshBtn;
 
 	private Button tracksSwitchBtn;
+	private Button queueSwitchBtn;
 	private Button speakerStreamsBtn;
 	private Button scanSpeakersBtn;
 	private Button clearSpeakersBtn;
 
+	private Button queueToTracksBtn;
+	private Button queueToSpeakersBtn;
+	private Button skipQueueBtn;
+	private Button clearQueueBtn;
+
+	private Button queueHeaderBtn;
 	private Button speakersHeaderBtn;
 	private Button modeBtn;
 	private Button shuffleBtn;
@@ -80,8 +90,10 @@ public class Mp3PlayerScreen extends Screen {
 	private String searchQuery = "";
 	private List<Mp3TrackInfo> filteredTracks = List.of();
 	private List<LinkedSpeaker> currentSpeakers = List.of();
+	private List<QueueEntryInfo> currentQueue = List.of();
 	private double scrollOffset = 0.0;
 	private double speakerScrollOffset = 0.0;
+	private double queueScrollOffset = 0.0;
 	private boolean draggingSeek = false;
 	private double dragSeekRatio = 0.0;
 	private boolean draggingScrollbar = false;
@@ -167,19 +179,27 @@ public class Mp3PlayerScreen extends Screen {
 
 		updateFilteredList();
 		updateSpeakerList();
+		updateQueueList();
 
-		// 1. Header Tab Toggle (Speakers badge) + Output Mode Button
+		// 1. Header Tab Toggles (Queue badge + Speakers badge) + Output Mode Button
+		this.queueHeaderBtn = Button.builder(buildQueueHeaderLabel(), btn -> {
+			this.viewTab = (this.viewTab == ViewTab.QUEUE) ? ViewTab.TRACKS : ViewTab.QUEUE;
+			syncTabVisibility();
+			refreshButtonLabels();
+		}).bounds(panelX + panelW - 224, panelY + 5, 42, 18).build();
+		this.addRenderableWidget(this.queueHeaderBtn);
+
 		this.speakersHeaderBtn = Button.builder(buildSpeakersHeaderLabel(), btn -> {
 			this.viewTab = (this.viewTab == ViewTab.SPEAKERS) ? ViewTab.TRACKS : ViewTab.SPEAKERS;
 			syncTabVisibility();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 192, panelY + 5, 48, 18).build();
+		}).bounds(panelX + panelW - 179, panelY + 5, 46, 18).build();
 		this.addRenderableWidget(this.speakersHeaderBtn);
 
 		this.modeBtn = Button.builder(buildModeLabel(), btn -> {
 			handleModeButtonClick();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 140, panelY + 5, 132, 18).build();
+		}).bounds(panelX + panelW - 130, panelY + 5, 122, 18).build();
 		this.addRenderableWidget(this.modeBtn);
 
 		// 2A. TRACKS Tab Toolbar: Search Bar + Folder & Refresh Buttons
@@ -218,21 +238,29 @@ public class Mp3PlayerScreen extends Screen {
 		this.refreshBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.refresh")));
 		this.addRenderableWidget(this.refreshBtn);
 
-		// 2B. SPEAKERS Tab Toolbar: Songs Tab Switch + Streams ON/OFF + Scan Nearby + Unlink All
+		// 2B. SPEAKERS Tab Toolbar: Songs Tab + Queue Tab + Streams ON/OFF + Scan Nearby + Unlink All
 		this.tracksSwitchBtn = Button.builder(buildTracksSwitchLabel(), btn -> {
 			this.viewTab = ViewTab.TRACKS;
 			syncTabVisibility();
 			refreshButtonLabels();
-		}).bounds(panelX + 8, panelY + 30, 96, 18).build();
+		}).bounds(panelX + 8, panelY + 30, 74, 18).build();
 		this.tracksSwitchBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.speakers.switch_tracks_tooltip")));
 		this.addRenderableWidget(this.tracksSwitchBtn);
 
-		int midW = Math.max(90, panelW - 8 - 96 - 4 - 84 - 4 - 28 - 8);
+		this.queueSwitchBtn = Button.builder(buildQueueSwitchLabel(), btn -> {
+			this.viewTab = ViewTab.QUEUE;
+			syncTabVisibility();
+			refreshButtonLabels();
+		}).bounds(panelX + 85, panelY + 30, 72, 18).build();
+		this.queueSwitchBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.queue.open_tab_tooltip", currentQueue.size())));
+		this.addRenderableWidget(this.queueSwitchBtn);
+
+		int midW = Math.max(68, panelW - 160 - 72 - 4 - 28 - 8);
 		this.speakerStreamsBtn = Button.builder(buildSpeakerStreamsLabel(), btn -> {
 			controller.setLinkedSpeakersEnabled(!controller.config().linkedSpeakersEnabled());
 			updateSpeakerList();
 			refreshButtonLabels();
-		}).bounds(panelX + 108, panelY + 30, midW, 18).build();
+		}).bounds(panelX + 160, panelY + 30, midW, 18).build();
 		this.addRenderableWidget(this.speakerStreamsBtn);
 
 		this.scanSpeakersBtn = Button.builder(Component.translatable("screen.mp3player.speakers.scan"), btn -> {
@@ -247,7 +275,7 @@ public class Mp3PlayerScreen extends Screen {
 				this.toastMessage = Component.translatable("screen.mp3player.speakers.scanned_toast", added).getString();
 				this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
 			}
-		}).bounds(panelX + panelW - 120, panelY + 30, 80, 18).build();
+		}).bounds(panelX + panelW - 112, panelY + 30, 72, 18).build();
 		this.scanSpeakersBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.speakers.scan_tooltip")));
 		this.addRenderableWidget(this.scanSpeakersBtn);
 
@@ -261,6 +289,49 @@ public class Mp3PlayerScreen extends Screen {
 		}).bounds(panelX + panelW - 36, panelY + 30, 28, 18).build();
 		this.clearSpeakersBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.speakers.clear_all")));
 		this.addRenderableWidget(this.clearSpeakersBtn);
+
+		// 2C. QUEUE Tab Toolbar: Songs Tab + Speakers Tab + Skip Current + Clear Queue
+		this.queueToTracksBtn = Button.builder(buildTracksSwitchLabel(), btn -> {
+			this.viewTab = ViewTab.TRACKS;
+			syncTabVisibility();
+			refreshButtonLabels();
+		}).bounds(panelX + 8, panelY + 30, 82, 18).build();
+		this.queueToTracksBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.speakers.switch_tracks_tooltip")));
+		this.addRenderableWidget(this.queueToTracksBtn);
+
+		this.queueToSpeakersBtn = Button.builder(buildSpeakersHeaderLabel(), btn -> {
+			this.viewTab = ViewTab.SPEAKERS;
+			syncTabVisibility();
+			refreshButtonLabels();
+		}).bounds(panelX + 94, panelY + 30, 76, 18).build();
+		this.queueToSpeakersBtn.setTooltip(Tooltip.create(Component.translatable(
+				"screen.mp3player.speakers.open_tab_tooltip",
+				controller.activeLinkedSpeakerCount(),
+				controller.totalLinkedSpeakerCount()
+		)));
+		this.addRenderableWidget(this.queueToSpeakersBtn);
+
+		int skipW = Math.max(80, panelW - 174 - 36 - 4);
+		this.skipQueueBtn = Button.builder(buildSkipQueueLabel(), btn -> {
+			int req = controller.requiredSkipVotes();
+			if (req > 1 && controller.isLocalPlayerInQueue() && !controller.hasLocalPlayerVotedSkip()) {
+				int nextCount = Math.min(req, controller.skipVoteCount() + 1);
+				this.toastMessage = Component.translatable("screen.mp3player.queue.vote_cast_toast", nextCount, req).getString();
+				this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+			}
+			controller.skipSpeakerQueueTrack();
+			updateQueueList();
+			refreshButtonLabels();
+		}).bounds(panelX + 174, panelY + 30, skipW, 18).build();
+		this.addRenderableWidget(this.skipQueueBtn);
+
+		this.clearQueueBtn = Button.builder(Component.literal("🗑"), btn -> {
+			controller.clearSpeakerQueue();
+			updateQueueList();
+			refreshButtonLabels();
+		}).bounds(panelX + panelW - 36, panelY + 30, 28, 18).build();
+		this.clearQueueBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.queue.clear_all")));
+		this.addRenderableWidget(this.clearQueueBtn);
 
 		// 3. Transport Controls + Volume Slider on Bottom Deck
 		int controlsY = deckTop + 38;
@@ -360,6 +431,10 @@ public class Mp3PlayerScreen extends Screen {
 			tracksSwitchBtn.visible = speakersTab;
 			tracksSwitchBtn.active = speakersTab;
 		}
+		if (queueSwitchBtn != null) {
+			queueSwitchBtn.visible = speakersTab;
+			queueSwitchBtn.active = speakersTab;
+		}
 		if (speakerStreamsBtn != null) {
 			speakerStreamsBtn.visible = speakersTab;
 			speakerStreamsBtn.active = speakersTab;
@@ -371,6 +446,24 @@ public class Mp3PlayerScreen extends Screen {
 		if (clearSpeakersBtn != null) {
 			clearSpeakersBtn.visible = speakersTab;
 			clearSpeakersBtn.active = speakersTab;
+		}
+
+		boolean queueTab = (this.viewTab == ViewTab.QUEUE);
+		if (queueToTracksBtn != null) {
+			queueToTracksBtn.visible = queueTab;
+			queueToTracksBtn.active = queueTab;
+		}
+		if (queueToSpeakersBtn != null) {
+			queueToSpeakersBtn.visible = queueTab;
+			queueToSpeakersBtn.active = queueTab;
+		}
+		if (skipQueueBtn != null) {
+			skipQueueBtn.visible = queueTab;
+			skipQueueBtn.active = queueTab;
+		}
+		if (clearQueueBtn != null) {
+			clearQueueBtn.visible = queueTab;
+			clearQueueBtn.active = queueTab;
 		}
 	}
 
@@ -423,7 +516,21 @@ public class Mp3PlayerScreen extends Screen {
 		clampSpeakerScroll();
 	}
 
+	private void updateQueueList() {
+		this.currentQueue = controller.speakerQueueEntries();
+		clampQueueScroll();
+	}
+
 	private void refreshButtonLabels() {
+		if (queueHeaderBtn != null) {
+			queueHeaderBtn.setMessage(buildQueueHeaderLabel());
+			queueHeaderBtn.setTooltip(Tooltip.create(Component.translatable(
+					viewTab == ViewTab.QUEUE
+							? "screen.mp3player.speakers.switch_tracks_tooltip"
+							: "screen.mp3player.queue.open_tab_tooltip",
+					currentQueue.size()
+			)));
+		}
 		if (speakersHeaderBtn != null) {
 			speakersHeaderBtn.setMessage(buildSpeakersHeaderLabel());
 			speakersHeaderBtn.setTooltip(Tooltip.create(Component.translatable(
@@ -436,6 +543,27 @@ public class Mp3PlayerScreen extends Screen {
 		}
 		if (tracksSwitchBtn != null) {
 			tracksSwitchBtn.setMessage(buildTracksSwitchLabel());
+		}
+		if (queueSwitchBtn != null) {
+			queueSwitchBtn.setMessage(buildQueueSwitchLabel());
+			queueSwitchBtn.setTooltip(Tooltip.create(Component.translatable(
+					"screen.mp3player.queue.open_tab_tooltip",
+					currentQueue.size()
+			)));
+		}
+		if (queueToTracksBtn != null) {
+			queueToTracksBtn.setMessage(buildTracksSwitchLabel());
+		}
+		if (queueToSpeakersBtn != null) {
+			queueToSpeakersBtn.setMessage(buildSpeakersHeaderLabel());
+		}
+		if (skipQueueBtn != null) {
+			skipQueueBtn.setMessage(buildSkipQueueLabel());
+			skipQueueBtn.setTooltip(buildSkipQueueTooltip());
+			skipQueueBtn.active = (this.viewTab == ViewTab.QUEUE)
+					&& !currentQueue.isEmpty()
+					&& controller.isLocalPlayerInQueue()
+					&& !controller.hasLocalPlayerVotedSkip();
 		}
 		if (speakerStreamsBtn != null) {
 			speakerStreamsBtn.setMessage(buildSpeakerStreamsLabel());
@@ -465,6 +593,67 @@ public class Mp3PlayerScreen extends Screen {
 					controller.config().muteOthers() ? "screen.mp3player.mute_others.on" : "screen.mp3player.mute_others.off"
 			)));
 		}
+	}
+
+	private Component buildQueueHeaderLabel() {
+		int qSize = currentQueue.size();
+		ChatFormatting color;
+		if (viewTab == ViewTab.QUEUE) {
+			color = ChatFormatting.GOLD;
+		} else if (qSize > 0) {
+			color = ChatFormatting.AQUA;
+		} else {
+			color = ChatFormatting.GRAY;
+		}
+		return Component.literal("📋 " + qSize).withStyle(color);
+	}
+
+	private Component buildQueueSwitchLabel() {
+		int qSize = currentQueue.size();
+		return Component.literal("📋 ")
+				.withStyle(qSize > 0 ? ChatFormatting.GOLD : ChatFormatting.GRAY)
+				.append(Component.translatable("screen.mp3player.queue.btn", qSize)
+						.withStyle(qSize > 0 ? ChatFormatting.GOLD : ChatFormatting.GRAY));
+	}
+
+	private Component buildSkipQueueLabel() {
+		if (currentQueue.isEmpty()) {
+			return Component.translatable("screen.mp3player.queue.skip").withStyle(ChatFormatting.GRAY);
+		}
+		int req = controller.requiredSkipVotes();
+		if (req <= 1) {
+			return Component.translatable("screen.mp3player.queue.skip")
+					.withStyle(controller.isLocalPlayerInQueue() ? ChatFormatting.AQUA : ChatFormatting.GRAY);
+		}
+		int votes = controller.skipVoteCount();
+		if (controller.hasLocalPlayerVotedSkip()) {
+			return Component.translatable("screen.mp3player.queue.skip_voted", votes, req)
+					.withStyle(ChatFormatting.GREEN);
+		}
+		if (controller.isLocalPlayerInQueue()) {
+			return Component.translatable("screen.mp3player.queue.skip_vote", votes, req)
+					.withStyle(ChatFormatting.GOLD);
+		}
+		return Component.translatable("screen.mp3player.queue.skip_vote", votes, req)
+				.withStyle(ChatFormatting.GRAY);
+	}
+
+	private Tooltip buildSkipQueueTooltip() {
+		if (currentQueue.isEmpty()) {
+			return Tooltip.create(Component.translatable("screen.mp3player.queue.skip_tooltip"));
+		}
+		int req = controller.requiredSkipVotes();
+		int votes = controller.skipVoteCount();
+		if (!controller.isLocalPlayerInQueue()) {
+			return Tooltip.create(Component.translatable("screen.mp3player.queue.skip_not_in_queue_tooltip", votes, req));
+		}
+		if (req <= 1) {
+			return Tooltip.create(Component.translatable("screen.mp3player.queue.skip_instant_tooltip"));
+		}
+		if (controller.hasLocalPlayerVotedSkip()) {
+			return Tooltip.create(Component.translatable("screen.mp3player.queue.skip_voted_tooltip", votes, req));
+		}
+		return Tooltip.create(Component.translatable("screen.mp3player.queue.skip_vote_tooltip", votes, req));
 	}
 
 	private Component buildSpeakersHeaderLabel() {
@@ -590,13 +779,14 @@ public class Mp3PlayerScreen extends Screen {
 			}
 		}
 		updateSpeakerList();
+		updateQueueList();
 		refreshButtonLabels();
 	}
 
 	@Override
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		boolean boomboxUi = isBoomboxScreen();
-		boolean speakerUi = speakerControllerScreen || viewTab == ViewTab.SPEAKERS;
+		boolean speakerUi = speakerControllerScreen || viewTab == ViewTab.SPEAKERS || viewTab == ViewTab.QUEUE;
 
 		// 1. Main Hi-Fi Window Card + Drop Shadow + Border
 		graphics.fill(panelX + 3, panelY + 3, panelX + panelW + 3, panelY + panelH + 3, 0x66000000);
@@ -610,26 +800,34 @@ public class Mp3PlayerScreen extends Screen {
 		graphics.fillGradient(panelX + 1, panelY + 1, panelX + panelW - 1, panelY + 27, headerTopGrad, 0x220F172A);
 		graphics.horizontalLine(panelX + 1, panelX + panelW - 2, panelY + 27, headerLineCol);
 
-		// Header Icon + Title + Count Badge
+		// Header Icon + Title + Count Badge (clipped neatly so it never overlaps right header buttons)
 		graphics.fakeItem(iconStack, panelX + 7, panelY + 5);
 		String titleKey = boomboxUi
 				? "block.mp3player.boombox"
-				: (speakerUi ? "item.mp3player.speaker_controller" : "screen.mp3player.title");
-		String titleStr = Component.translatable(titleKey).getString();
-		int titleColor = boomboxUi ? 0xFFA7F3D0 : (speakerUi ? 0xFFDDD6FE : 0xFFF8FAFC);
-		graphics.text(this.font, titleStr, panelX + 27, panelY + 10, titleColor, true);
-
+				: (viewTab == ViewTab.QUEUE
+				? "screen.mp3player.queue.title"
+				: (speakerUi ? "item.mp3player.speaker_controller" : "screen.mp3player.title"));
 		String countBadge = viewTab == ViewTab.SPEAKERS
 				? "(" + currentSpeakers.size() + ")"
-				: "(" + controller.library().tracks().size() + ")";
-		graphics.text(this.font, countBadge, panelX + 27 + this.font.width(titleStr) + 5, panelY + 10, 0xFF64748B, false);
+				: (viewTab == ViewTab.QUEUE
+				? "(" + currentQueue.size() + ")"
+				: "(" + controller.library().tracks().size() + ")");
 
-		// 2. Center Recessed Box (Playlist or Linked Speakers Management)
+		int maxTitleAreaW = Math.max(40, (panelX + panelW - 228) - (panelX + 27));
+		int countW = this.font.width(countBadge) + 5;
+		String titleStr = clipText(Component.translatable(titleKey).getString(), Math.max(24, maxTitleAreaW - countW));
+		int titleColor = boomboxUi ? 0xFFA7F3D0 : (speakerUi ? 0xFFDDD6FE : 0xFFF8FAFC);
+		graphics.text(this.font, titleStr, panelX + 27, panelY + 10, titleColor, true);
+		graphics.text(this.font, countBadge, panelX + 27 + this.font.width(titleStr) + 4, panelY + 10, 0xFF64748B, false);
+
+		// 2. Center Recessed Box (Playlist, Linked Speakers, or Playback Queue)
 		graphics.fill(listLeft, listTop, listRight, listBottom, 0xCC070B14);
 		graphics.outline(listLeft, listTop, listRight - listLeft, listBottom - listTop, 0xFF1E293B);
 
 		if (viewTab == ViewTab.SPEAKERS) {
 			renderSpeakerList(graphics, mouseX, mouseY);
+		} else if (viewTab == ViewTab.QUEUE) {
+			renderQueueList(graphics, mouseX, mouseY);
 		} else {
 			renderTrackList(graphics, mouseX, mouseY);
 		}
@@ -741,16 +939,25 @@ public class Mp3PlayerScreen extends Screen {
 				graphics.text(this.font, num, iconX, rowTop + 7, 0xFF475569, false);
 			}
 
-			// Duration right-aligned + compact Format Badge pill
+			// Right-side [+] Queue button + Duration + compact Format Badge pill
+			int qBtnW = 16;
+			int qBtnX = innerRight - 8 - qBtnW;
+			int qBtnY = rowTop + 5;
+			int qBtnH = 12;
+			boolean hoverQueueBtn = isHovered && mouseX >= qBtnX && mouseX <= qBtnX + qBtnW;
+			graphics.fill(qBtnX, qBtnY, qBtnX + qBtnW, qBtnY + qBtnH, hoverQueueBtn ? 0xAA8B5CF6 : 0x331E293B);
+			graphics.outline(qBtnX, qBtnY, qBtnW, qBtnH, hoverQueueBtn ? 0xFFA78BFA : 0xFF475569);
+			graphics.centeredText(this.font, "+", qBtnX + qBtnW / 2, qBtnY + 2, hoverQueueBtn ? 0xFFF8FAFC : 0xFFC4B5FD);
+
 			String dur = track.formattedDuration();
 			int durW = this.font.width(dur);
-			int durX = innerRight - 10 - durW;
+			int durX = qBtnX - 5 - durW;
 			graphics.text(this.font, dur, durX, rowTop + 7, isCurrent ? 0xFF7DD3FC : 0xFF64748B, false);
 
 			String badge = track.formatBadge();
 			int badgeTextW = this.font.width(badge);
 			int badgeBoxW = badgeTextW + 6;
-			int badgeX = durX - 6 - badgeBoxW;
+			int badgeX = durX - 5 - badgeBoxW;
 			int badgeY = rowTop + 5;
 			int badgeColor = formatBadgeColor(badge, isCurrent);
 			graphics.fill(badgeX, badgeY, badgeX + badgeBoxW, badgeY + 11, isCurrent ? 0x3338BDF8 : 0x221E293B);
@@ -830,7 +1037,7 @@ public class Mp3PlayerScreen extends Screen {
 			LinkedSpeaker ls = currentSpeakers.get(i);
 			BlockPos pos = ls.pos();
 			boolean isFocused = focusedSpeakerPos != null && focusedSpeakerPos.equals(pos);
-			boolean isStreaming = controller.isSpeakerStreaming(pos);
+			boolean isStreaming = controller.isSpeakerStreaming(pos) || remoteSpeakers.isSpeakerStreamingRemotely(pos);
 			boolean isHovered = inListBounds && mouseY >= rowTop && mouseY < rowBottom;
 
 			if (isStreaming) {
@@ -946,6 +1153,159 @@ public class Mp3PlayerScreen extends Screen {
 		}
 	}
 
+	private void renderQueueList(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		int innerLeft = listLeft + 1;
+		int innerTop = listTop + 1;
+		int innerRight = listRight - 1;
+		int innerBottom = listBottom - 1;
+		int viewHeight = innerBottom - innerTop;
+
+		if (currentQueue.isEmpty()) {
+			int cy = innerTop + viewHeight / 2 - 10;
+			graphics.centeredText(
+					this.font,
+					Component.translatable("screen.mp3player.queue.empty.title"),
+					panelX + panelW / 2,
+					cy,
+					0xFFE2E8F0
+			);
+			graphics.centeredText(
+					this.font,
+					Component.translatable("screen.mp3player.queue.empty.subtitle"),
+					panelX + panelW / 2,
+					cy + 13,
+					0xFF94A3B8
+			);
+			return;
+		}
+
+		boolean inListBounds = mouseX >= innerLeft && mouseX < innerRight - 5 && mouseY >= innerTop && mouseY < innerBottom;
+		UUID localUuid = (this.minecraft != null && this.minecraft.player != null) ? this.minecraft.player.getUUID() : null;
+		long animTick = System.currentTimeMillis();
+
+		graphics.enableScissor(innerLeft, innerTop, innerRight, innerBottom);
+
+		int waitingIndex = 0;
+		for (int i = 0; i < currentQueue.size(); i++) {
+			QueueEntryInfo entry = currentQueue.get(i);
+			if (!entry.nowPlaying()) {
+				waitingIndex++;
+			}
+
+			int rowTop = (int) Math.round(innerTop + i * ROW_HEIGHT - queueScrollOffset);
+			int rowBottom = rowTop + ROW_HEIGHT;
+			if (rowBottom < innerTop || rowTop > innerBottom) {
+				continue;
+			}
+
+			boolean isMine = localUuid != null && localUuid.equals(entry.ownerUuid());
+			boolean isHovered = inListBounds && mouseY >= rowTop && mouseY < rowBottom;
+
+			if (entry.nowPlaying()) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x3A10B981);
+				graphics.fill(innerLeft, rowTop, innerLeft + 3, rowBottom - 1, 0xFF34D399);
+			} else if (isMine) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, isHovered ? 0x330EA5E9 : 0x1E0EA5E9);
+				graphics.fill(innerLeft, rowTop, innerLeft + 3, rowBottom - 1, 0xFF38BDF8);
+			} else if (isHovered) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x2A475569);
+			} else if ((i & 1) == 1) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x121E293B);
+			}
+
+			// Left indicator: Animated Equalizer if LIVE, Pause icon, or Queue Position (#1, #2, ...)
+			int iconX = innerLeft + 7;
+			if (entry.nowPlaying()) {
+				if (!entry.paused()) {
+					float level = Math.max(0.24f, controller.visualizerLevel());
+					for (int b = 0; b < 4; b++) {
+						double wave = 0.55 + 0.45 * Math.sin((animTick / 95.0) + b * 1.45);
+						int barH = Math.max(2, Math.min(12, (int) Math.round(12 * level * wave)));
+						int bx = iconX + b * 3;
+						int by = rowTop + 16 - barH;
+						graphics.fill(bx, by, bx + 2, rowTop + 16, 0xFF34D399);
+					}
+				} else {
+					graphics.text(this.font, "⏸", iconX + 2, rowTop + 7, 0xFFFBBF24, false);
+				}
+			} else {
+				String posLabel = "#" + waitingIndex;
+				graphics.text(this.font, posLabel, iconX, rowTop + 7, 0xFFA78BFA, false);
+			}
+
+			// Right-side [✕] Remove/Skip button + Status Pill + Duration
+			int rmW = 16;
+			int rmX = innerRight - 8 - rmW;
+			int pillY = rowTop + 5;
+			int pillH = 12;
+			boolean hoverRm = isHovered && mouseX >= rmX && mouseX <= rmX + rmW;
+			graphics.fill(rmX, pillY, rmX + rmW, pillY + pillH, hoverRm ? 0xAAEF4444 : 0x447F1D1D);
+			graphics.outline(rmX, pillY, rmW, pillH, hoverRm ? 0xFFF87171 : 0xFF991B1B);
+			graphics.centeredText(this.font, "✕", rmX + rmW / 2, pillY + 2, 0xFFFECACA);
+
+			int rightBoundX = rmX - 5;
+			if (entry.durationSeconds() > 0) {
+				String dur = Mp3TrackInfo.formatSeconds(entry.durationSeconds());
+				int durW = this.font.width(dur);
+				int durX = rightBoundX - durW;
+				graphics.text(this.font, dur, durX, rowTop + 7, entry.nowPlaying() ? 0xFFA7F3D0 : 0xFF64748B, false);
+				rightBoundX = durX - 5;
+			}
+
+			String statusText = entry.nowPlaying()
+					? Component.translatable(entry.paused() ? "screen.mp3player.queue.status.paused" : "screen.mp3player.queue.status.live").getString()
+					: Component.translatable("screen.mp3player.queue.status.queued").getString();
+			int statusW = this.font.width(statusText) + 6;
+			int statusX = rightBoundX - statusW;
+			int statusBg = entry.nowPlaying() ? (entry.paused() ? 0x33D97706 : 0x33059669) : 0x223B0764;
+			int statusBorder = entry.nowPlaying() ? (entry.paused() ? 0xFFFBBF24 : 0xFF34D399) : 0xFF7C3AED;
+			int statusCol = entry.nowPlaying() ? (entry.paused() ? 0xFFFDE68A : 0xFFA7F3D0) : 0xFFDDD6FE;
+			graphics.fill(statusX, pillY, statusX + statusW, pillY + pillH, statusBg);
+			graphics.outline(statusX, pillY, statusW, pillH, statusBorder);
+			graphics.text(this.font, statusText, statusX + 3, pillY + 2, statusCol, false);
+
+			// Song Title (Top Line) & "Added by <Player>" (Bottom Line)
+			int textX = innerLeft + 26;
+			int availTextW = Math.max(40, statusX - textX - 6);
+			graphics.text(
+					this.font,
+					clipText(entry.trackTitle(), availTextW),
+					textX,
+					rowTop + 3,
+					0xFFF8FAFC,
+					entry.nowPlaying()
+			);
+
+			String addedByStr = Component.translatable("screen.mp3player.queue.added_by", entry.ownerName()).getString();
+			if (controller.requiredSkipVotes() > 1 && controller.hasPlayerVotedSkip(entry.ownerUuid())) {
+				addedByStr += " • ✔ Skip";
+			}
+			int ownerColor = entry.nowPlaying() ? 0xFF34D399 : (isMine ? 0xFF7DD3FC : 0xFFFBBF24);
+			graphics.text(
+					this.font,
+					clipText(addedByStr, availTextW),
+					textX,
+					rowTop + 12,
+					ownerColor,
+					false
+			);
+		}
+
+		graphics.disableScissor();
+
+		// Scrollbar for queue list
+		int contentHeight = currentQueue.size() * ROW_HEIGHT;
+		if (contentHeight > viewHeight) {
+			int sbX1 = innerRight - 4;
+			int sbX2 = innerRight - 1;
+			graphics.fill(sbX1, innerTop + 1, sbX2, innerBottom - 1, 0x441E293B);
+			int thumbH = Math.max(18, (int) ((viewHeight * (double) viewHeight) / contentHeight));
+			double maxScroll = contentHeight - viewHeight;
+			int thumbY = innerTop + 1 + (int) Math.round((queueScrollOffset / maxScroll) * (viewHeight - 2 - thumbH));
+			graphics.fill(sbX1, thumbY, sbX2, thumbY + thumbH, draggingScrollbar ? 0xFFFBBF24 : 0xAA64748B);
+		}
+	}
+
 	private void renderNowPlayingAndSeekBar(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
 		Mp3TrackInfo current = controller.currentTrack();
 
@@ -983,14 +1343,25 @@ public class Mp3PlayerScreen extends Screen {
 		int maxNowPlayingW = panelW - 16 - rightStatusW;
 		RemoteStream remoteOnBox = isBoomboxScreen()
 				? remoteSpeakers.findStreamAtBoombox(targetBoomboxPos)
-				: (focusedSpeakerPos != null ? remoteSpeakers.findStreamAtSpeaker(focusedSpeakerPos) : null);
+				: (focusedSpeakerPos != null
+				? remoteSpeakers.findStreamAtSpeaker(focusedSpeakerPos)
+				: remoteSpeakers.findAnySpeakerStream());
+		QueueEntryInfo activeQueueEntry = controller.activeSpeakerQueueEntry();
+
 		if (remoteOnBox != null && !controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
-			String remotePrefix = remoteOnBox.paused() ? "⏸ 📻 " : "♪ 📻 ";
+			String remotePrefix = remoteOnBox.paused() ? "⏸ 🔊 " : "♪ 🔊 ";
 			String label = clipText(remotePrefix + remoteOnBox.speakerName() + " – " + remoteOnBox.trackTitle(), maxNowPlayingW);
+			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF34D399, true);
+		} else if (activeQueueEntry != null && controller.isAnotherPlayerPlayingOnSpeakers() && current == null) {
+			String remotePrefix = activeQueueEntry.paused() ? "⏸ 🔊 " : "♪ 🔊 ";
+			String label = clipText(remotePrefix + activeQueueEntry.ownerName() + " – " + activeQueueEntry.trackTitle(), maxNowPlayingW);
 			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF34D399, true);
 		} else if (current != null) {
 			String prefix = controller.isPlaying() ? "♪ " : "⏸ ";
-			String label = clipText(prefix + current.fullDisplayLabel(), maxNowPlayingW);
+			String ownerSuffix = (activeQueueEntry != null && controller.isSpeakerSystemMode())
+					? " (" + activeQueueEntry.ownerName() + ")"
+					: "";
+			String label = clipText(prefix + current.fullDisplayLabel() + ownerSuffix, maxNowPlayingW);
 			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF7DD3FC, true);
 		} else {
 			String idle = clipText(Component.translatable("screen.mp3player.nothing_playing").getString(), maxNowPlayingW);
@@ -1054,7 +1425,11 @@ public class Mp3PlayerScreen extends Screen {
 		int innerRight = listRight - 1;
 		int innerBottom = listBottom - 1;
 		int viewHeight = innerBottom - innerTop;
-		int itemCount = (viewTab == ViewTab.SPEAKERS) ? currentSpeakers.size() : filteredTracks.size();
+		int itemCount = switch (viewTab) {
+			case SPEAKERS -> currentSpeakers.size();
+			case QUEUE -> currentQueue.size();
+			case TRACKS -> filteredTracks.size();
+		};
 		int contentHeight = itemCount * ROW_HEIGHT;
 
 		// 2. Scrollbar drag start
@@ -1064,7 +1439,7 @@ public class Mp3PlayerScreen extends Screen {
 			return true;
 		}
 
-		// 3. List Row Click (Speakers tab or Tracks tab)
+		// 3. List Row Click (Speakers tab, Queue tab, or Tracks tab)
 		if (mx >= innerLeft && mx < innerRight - 5 && my >= innerTop && my < innerBottom) {
 			if (viewTab == ViewTab.SPEAKERS) {
 				int idx = (int) Math.floor((my - innerTop + speakerScrollOffset) / ROW_HEIGHT);
@@ -1095,17 +1470,55 @@ public class Mp3PlayerScreen extends Screen {
 					refreshButtonLabels();
 					return true;
 				}
+			} else if (viewTab == ViewTab.QUEUE) {
+				int idx = (int) Math.floor((my - innerTop + queueScrollOffset) / ROW_HEIGHT);
+				if (idx >= 0 && idx < currentQueue.size()) {
+					QueueEntryInfo clicked = currentQueue.get(idx);
+					int rmW = 16;
+					int rmX = innerRight - 8 - rmW;
+					if (mx >= rmX && mx <= rmX + rmW) {
+						if (clicked.nowPlaying() && controller.requiredSkipVotes() > 1 && controller.isLocalPlayerInQueue() && !controller.hasLocalPlayerVotedSkip()) {
+							int req = controller.requiredSkipVotes();
+							int nextCount = Math.min(req, controller.skipVoteCount() + 1);
+							this.toastMessage = Component.translatable("screen.mp3player.queue.vote_cast_toast", nextCount, req).getString();
+							this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+						}
+						controller.removeSpeakerQueueEntry(clicked.entryId());
+						updateQueueList();
+						refreshButtonLabels();
+						return true;
+					}
+				}
 			} else {
 				int idx = (int) Math.floor((my - innerTop + scrollOffset) / ROW_HEIGHT);
 				if (idx >= 0 && idx < filteredTracks.size()) {
 					Mp3TrackInfo clicked = filteredTracks.get(idx);
+					int qBtnW = 16;
+					int qBtnX = innerRight - 8 - qBtnW;
+					if (mx >= qBtnX && mx <= qBtnX + qBtnW) {
+						boolean queued = controller.enqueueTrackOnSpeakers(clicked, false);
+						updateQueueList();
+						refreshButtonLabels();
+						String toastKey = queued
+								? "screen.mp3player.queue.added_toast"
+								: "screen.mp3player.queue.playing_toast";
+						this.toastMessage = Component.translatable(toastKey, clicked.displayTitle()).getString();
+						this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+						return true;
+					}
+
 					if (isBoomboxScreen()) {
 						controller.playTrackOnBoombox(clicked, targetBoomboxDimension, targetBoomboxPos);
-					} else if (speakerControllerScreen && !controller.isBoomboxActive()) {
-						controller.playTrackOnSpeakers(clicked);
+					} else if ((speakerControllerScreen || controller.isSpeakerSystemMode()) && !controller.isBoomboxActive()) {
+						boolean queued = controller.enqueueTrackOnSpeakers(clicked, true);
+						if (queued) {
+							this.toastMessage = Component.translatable("screen.mp3player.queue.added_toast", clicked.displayTitle()).getString();
+							this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+						}
 					} else {
 						controller.playTrack(clicked);
 					}
+					updateQueueList();
 					refreshButtonLabels();
 					return true;
 				}
@@ -1148,6 +1561,9 @@ public class Mp3PlayerScreen extends Screen {
 			if (viewTab == ViewTab.SPEAKERS) {
 				this.speakerScrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
 				clampSpeakerScroll();
+			} else if (viewTab == ViewTab.QUEUE) {
+				this.queueScrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
+				clampQueueScroll();
 			} else {
 				this.scrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
 				clampScroll();
@@ -1230,6 +1646,11 @@ public class Mp3PlayerScreen extends Screen {
 			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
 			this.speakerScrollOffset = ratio * maxScroll;
 			clampSpeakerScroll();
+		} else if (viewTab == ViewTab.QUEUE) {
+			int contentHeight = currentQueue.size() * ROW_HEIGHT;
+			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
+			this.queueScrollOffset = ratio * maxScroll;
+			clampQueueScroll();
 		} else {
 			int contentHeight = filteredTracks.size() * ROW_HEIGHT;
 			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
@@ -1250,6 +1671,13 @@ public class Mp3PlayerScreen extends Screen {
 		int contentHeight = currentSpeakers.size() * ROW_HEIGHT;
 		double maxScroll = Math.max(0.0, contentHeight - viewHeight);
 		this.speakerScrollOffset = Math.max(0.0, Math.min(maxScroll, this.speakerScrollOffset));
+	}
+
+	private void clampQueueScroll() {
+		int viewHeight = Math.max(1, (listBottom - 1) - (listTop + 1));
+		int contentHeight = currentQueue.size() * ROW_HEIGHT;
+		double maxScroll = Math.max(0.0, contentHeight - viewHeight);
+		this.queueScrollOffset = Math.max(0.0, Math.min(maxScroll, this.queueScrollOffset));
 	}
 
 	private static int formatBadgeColor(String badge, boolean active) {

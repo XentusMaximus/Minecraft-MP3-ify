@@ -61,6 +61,14 @@ public final class Mp3Config {
 	private boolean linkedSpeakersEnabled = true;
 	private final List<LinkedSpeaker> linkedSpeakers = new ArrayList<>();
 
+	// Spotify Account Link & Playlist Configuration
+	private String spotifyClientId = "";
+	private String spotifyAccessToken = "";
+	private String spotifyRefreshToken = "";
+	private long spotifyTokenExpiresAt = 0L;
+	private String spotifyAccountName = "";
+	private final List<String> spotifySavedPlaylists = new ArrayList<>();
+
 	public Mp3Config() {
 		this.configFile = FabricLoader.getInstance().getConfigDir().resolve("mp3player.properties");
 		load();
@@ -144,6 +152,73 @@ public final class Mp3Config {
 		}
 	}
 
+	public String spotifyClientId() {
+		return spotifyClientId;
+	}
+
+	public void setSpotifyClientId(String spotifyClientId) {
+		this.spotifyClientId = spotifyClientId != null ? spotifyClientId.trim() : "";
+	}
+
+	public String spotifyAccessToken() {
+		return spotifyAccessToken;
+	}
+
+	public void setSpotifyAccessToken(String spotifyAccessToken) {
+		this.spotifyAccessToken = spotifyAccessToken != null ? spotifyAccessToken.trim() : "";
+	}
+
+	public String spotifyRefreshToken() {
+		return spotifyRefreshToken;
+	}
+
+	public void setSpotifyRefreshToken(String spotifyRefreshToken) {
+		this.spotifyRefreshToken = spotifyRefreshToken != null ? spotifyRefreshToken.trim() : "";
+	}
+
+	public long spotifyTokenExpiresAt() {
+		return spotifyTokenExpiresAt;
+	}
+
+	public void setSpotifyTokenExpiresAt(long spotifyTokenExpiresAt) {
+		this.spotifyTokenExpiresAt = spotifyTokenExpiresAt;
+	}
+
+	public String spotifyAccountName() {
+		return spotifyAccountName;
+	}
+
+	public void setSpotifyAccountName(String spotifyAccountName) {
+		this.spotifyAccountName = spotifyAccountName != null ? spotifyAccountName.trim() : "";
+	}
+
+	public boolean isSpotifyLinked() {
+		return !spotifyAccountName.isBlank() || !spotifyAccessToken.isBlank() || !spotifyRefreshToken.isBlank();
+	}
+
+	public List<String> spotifySavedPlaylists() {
+		return Collections.unmodifiableList(spotifySavedPlaylists);
+	}
+
+	public void setSpotifySavedPlaylists(List<String> playlists) {
+		spotifySavedPlaylists.clear();
+		if (playlists != null) {
+			for (String id : playlists) {
+				if (id != null && !id.isBlank() && !spotifySavedPlaylists.contains(id.trim())) {
+					spotifySavedPlaylists.add(id.trim());
+				}
+			}
+		}
+	}
+
+	public void clearSpotifyAccount() {
+		this.spotifyAccessToken = "";
+		this.spotifyRefreshToken = "";
+		this.spotifyTokenExpiresAt = 0L;
+		this.spotifyAccountName = "";
+		this.spotifySavedPlaylists.clear();
+	}
+
 	public void load() {
 		if (!Files.isRegularFile(configFile)) {
 			save();
@@ -163,6 +238,25 @@ public final class Mp3Config {
 			} catch (IllegalArgumentException ignored) {
 				this.loopMode = LoopMode.OFF;
 			}
+			this.spotifyClientId = props.getProperty("spotifyClientId", "").trim();
+			this.spotifyAccessToken = props.getProperty("spotifyAccessToken", "").trim();
+			this.spotifyRefreshToken = props.getProperty("spotifyRefreshToken", "").trim();
+			try {
+				this.spotifyTokenExpiresAt = Long.parseLong(props.getProperty("spotifyTokenExpiresAt", "0").trim());
+			} catch (NumberFormatException ignored) {
+				this.spotifyTokenExpiresAt = 0L;
+			}
+			this.spotifyAccountName = props.getProperty("spotifyAccountName", "").trim();
+			this.spotifySavedPlaylists.clear();
+			String rawPlaylists = props.getProperty("spotifySavedPlaylists", "").trim();
+			if (!rawPlaylists.isEmpty()) {
+				for (String p : rawPlaylists.split(";")) {
+					String trimmed = p.trim();
+					if (!trimmed.isEmpty() && !spotifySavedPlaylists.contains(trimmed)) {
+						spotifySavedPlaylists.add(trimmed);
+					}
+				}
+			}
 			// Linked speakers are strictly per-session and reset on server join/leave
 			this.linkedSpeakers.clear();
 		} catch (Exception e) {
@@ -179,6 +273,12 @@ public final class Mp3Config {
 		props.setProperty("loopMode", loopMode.name());
 		props.setProperty("muteOthers", Boolean.toString(muteOthers));
 		props.setProperty("linkedSpeakersEnabled", Boolean.toString(linkedSpeakersEnabled));
+		props.setProperty("spotifyClientId", spotifyClientId != null ? spotifyClientId : "");
+		props.setProperty("spotifyAccessToken", spotifyAccessToken != null ? spotifyAccessToken : "");
+		props.setProperty("spotifyRefreshToken", spotifyRefreshToken != null ? spotifyRefreshToken : "");
+		props.setProperty("spotifyTokenExpiresAt", Long.toString(spotifyTokenExpiresAt));
+		props.setProperty("spotifyAccountName", spotifyAccountName != null ? spotifyAccountName : "");
+		props.setProperty("spotifySavedPlaylists", String.join(";", spotifySavedPlaylists));
 
 		try {
 			Files.createDirectories(configFile.getParent());

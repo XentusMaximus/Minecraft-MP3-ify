@@ -1,6 +1,6 @@
-# MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.2`)
+# MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.4`)
 
-![Version 1.3.2](https://img.shields.io/badge/Version-1.3.2-a855f7?style=flat-square)
+![Version 1.3.4](https://img.shields.io/badge/Version-1.3.4-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -14,8 +14,12 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 
 ## Features
 
+- **Spotify-Account-Verknüpfung & Playlist-Wiedergabe (`v1.3.4`):**
+  - **Verpflichtende Spotify-Account-Verknüpfung (`Spot`-Tab):** Vor dem Laden und Abspielen von Spotify-Playlists muss der eigene Spotify-Account verknüpft werden — entweder über das integrierte lokale Browser-Login-Portal (`http://127.0.0.1:8888/spotify` inkl. ausführlicher Schritt-für-Schritt-Anleitung) oder direkt im Ingame-GUI per Client-ID, Profil-URL oder Token.
+  - **Vollständiges Laden großer Playlists (Kein 100-Song-Limit, Rate-Limit-frei):** Lädt komplette Spotify-Playlists beliebiger Größe (z. B. `250+` bis `5.000` Songs) ohne Rate-Limits über automatische Seiten-Pagination (Spotify Web API & Partner Pathfinder GraphQL `fetchPlaylistContents`).
+  - **Exaktes Studio-Audio-Matching & Caching:** Sucht gezielt nach den offiziellen YouTube-Topic- / Studio-Uploads passend zur exakten Spotify-Songdauer (`±8 Sek.` Toleranz) und filtert inoffizielle `Slowed`-, `Sped Up`-, `Nightcore`- oder `Remix`-Uploads automatisch heraus. Gecachte Tracks (`mp3s/.spotify-cache/`) laufen nahtlos über **Kopfhörer**, die **3D-Boombox** und **verlinkte Lautsprecher-Netzwerke** (inkl. `[+]`-**Warteschlange**).
 - **Verlinkbare 3D-Lautsprecher (`mp3player:speaker`) & Lautsprecher-Controller (`mp3player:speaker_controller`):**
-  - **Volle 16×16×16 Lautsprecher-Blöcke ohne Partikel:** Platzierbare, direktionale Studio-Lautsprecher als volle Blöcke, die während der Wiedergabe **keine Partikel** erzeugen.
+  - **Volle 16×16×16 Lautsprecher-Blöcke ohne Partikel & ohne Limit (`Integer.MAX_VALUE`):** Platzierbare, direktionale Studio-Lautsprecher als volle Blöcke, die während der Wiedergabe **keine Partikel** erzeugen und ohne Begrenzung (`2.147.483.647`) verknüpft werden können.
   - **Erweiterte `32×32×32` (`±32` in X, Y, Z) 3D-Reichweite & Sample-genaue Synchronisation:** Jeder verknüpfte Lautsprecher strahlt die laufende Musik exakt von seiner eigenen Block-Position als **zusätzlichen sample-synchronen 3D-OpenAL-Stream** ab (`18 m` Vollpegel-Kernbereich, `±32×32×32` Abdeckung bis `76 m` Maximaldistanz / `80 m` Server-Relay-Radius — hörbar für dich selbst und für alle Mitspieler im Multiplayer / Essential!). Auch während der laufenden Wiedergabe neu verknüpfte Lautsprecher synchronisieren sich sofort sample-genau ohne Echo oder Versatz; beim Betreten oder Verlassen eines Servers werden die Lautsprecher-Verbindungen automatisch zurückgesetzt.
   - **Lautsprecher-Controller (`mp3player:speaker_controller`):** Verknüpfe oder trenne Lautsprecher per Rechtsklick auf den Block oder öffne mit Rechtsklick in die Luft das **Lautsprecher-Verwaltungs- & Wiedergabe-GUI** (inkl. **96-Blöcke-Umgebungsscan `Scannen`**, Einzel-Stummschaltung `AN/AUS`, individueller Lautstärke pro Lautsprecher `25 %–100 %` und voller Musiksteuerung).
   - **Gemeinsame Wiedergabe-Warteschlange (`Queue`), unabhängige Lautsprecher-Netzwerke & Skip-Vote:** Lautsprecher innerhalb des `96`-Blöcke-Scanradius bilden ein eigenes, unabhängiges Lautsprecher-Netzwerk (sodass z. B. eine eigene „Home-HiFi"-Anlage völlig getrennt von einem „Club"-Netzwerk laufen kann). Verbinden sich mehrere Spieler mit demselben Netzwerk, überlappen sich die Streams nicht — Songs landen in der **Warteschlange** dieses Netzwerks (`Hinzugefügt von: <Spieler>`), und beim Verbinden mit einem Netzwerk mit bereits bestehender Queue wird das vorherige separate Netzwerk automatisch geschlossen. Das Überspringen nutzt eine **Skip-Abstimmung (`Skip-Vote`)** unter allen Spielern, die Songs in der Warteschlange haben (mit sofortigem Skip, wenn nur ein Spieler Songs in der Queue hat).
@@ -51,12 +55,21 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 - **Java:** `25+`
 
 ### Einrichtung
-1. Lege die gebaute `mp3player-1.3.2.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
-   > **Hinweis für Essential World Hosting & Server:** Für den **3D-Lautsprecher**, die **Boombox** und **verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.2.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
+1. Lege die gebaute `mp3player-1.3.4.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
+   > **Hinweis für Essential World Hosting & Server:** Für den **3D-Lautsprecher**, die **Boombox** und **verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.4.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
 2. **Eigene Audiodateien hinzufügen (3 Möglichkeiten):**
    - **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
    - **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.
    - **Manuell:** Kopiere deine Audiodateien in den Ordner `<minecraft-instanz>/mp3s/` *(Unterordner werden ebenfalls automatisch erkannt)*.
+3. **Spotify-Account verknüpfen (`Spot`-Tab — 2 Möglichkeiten):**
+   - Öffne das MP3-Player- oder Lautsprecher-Controller-GUI im Spiel, klicke oben im Header auf **`Spot`** und anschließend auf **`Web`**, um das lokale Verknüpfungsportal (`http://127.0.0.1:8888/spotify`) im Browser zu öffnen:
+     - **Option 1 — Schnell-Verknüpfung (Ohne Developer-App):** Gib deinen Spotify-Accountnamen (oder Profil-Link) sowie deine Spotify-Playlist-Links ein. Weitere Playlists können jederzeit auch direkt im Spiel über das Eingabefeld (`+ Playlist`) hinzugefügt werden.
+     - **Option 2 — Offizieller Spotify OAuth 2.0 PKCE Login (Alle eigenen/privaten Playlists & Lieblingssongs):**
+       1. Melde dich im [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) an und klicke oben rechts auf **Create app**.
+       2. Vergib einen beliebigen **App name** (z. B. `Minecraft MP3 Player`) und eine **App description**.
+       3. Trage unter **Redirect URIs** exakt `http://127.0.0.1:8888/callback` ein und klicke daneben auf **Add**.
+       4. Setze unter **Which API/SDKs are you planning to use?** den Haken bei **Web API**, bestätige die Nutzungsbedingungen und klicke auf **Save**.
+       5. Öffne in der App oben rechts **Settings**, kopiere die 32-stellige **Client ID** (das *Client Secret* wird dank PKCE nicht benötigt), füge sie im Portal (oder direkt im Spiel) ein und bestätige den Spotify-Login im Browser.
 
 ---
 
@@ -145,8 +158,9 @@ src/
         │   └── decoder/                 # Streaming-PCM + Seek-Decoder (MP3, M4A, OPUS, WAV, FLAC, OGG)
         ├── config/Mp3Config.java        # Persistente Spieler- & Sound-Optionen-Einstellungen
         ├── debug/                       # Client-seitiger Timeout-Simulator (/mp3timeout)
-        ├── gui/                         # Mp3PlayerScreen (Songs- & Lautsprecher-Tab) & SoundOptionsInjector
-        └── library/Mp3LibraryManager.java
+        ├── gui/                         # Mp3PlayerScreen (Songs-, Lautsprecher-, Queue- & Spotify-Tab) & SoundOptionsInjector
+        ├── library/Mp3LibraryManager.java
+        └── spotify/SpotifyManager.java  # Spotify OAuth 2.0 PKCE Portal, Voll-Pagination & Studio-Audio-Resolver
 ```
 
 ### Selbst kompilieren
@@ -156,7 +170,7 @@ Vorausgesetzt wird ein installiertes **JDK 25**:
 .\gradlew.bat build
 ```
 
-Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.3.2.jar`.
+Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.3.4.jar`.
 
 ---
 

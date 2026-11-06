@@ -7,6 +7,9 @@ import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.client.config.Mp3Config.LinkedSpeaker;
 import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
+import de.vibecoded.mp3player.client.spotify.SpotifyManager;
+import de.vibecoded.mp3player.client.spotify.SpotifyManager.SpotifyPlaylist;
+import de.vibecoded.mp3player.client.spotify.SpotifyManager.SpotifyTrack;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
 import de.vibecoded.mp3player.network.Mp3Payloads;
 import de.vibecoded.mp3player.network.Mp3Payloads.C2SQueueAction;
@@ -114,10 +117,14 @@ public final class Mp3AudioController {
 
 	private final Mp3Config config;
 	private final Mp3LibraryManager library;
+	private final SpotifyManager spotify;
 	private final Random random = new Random();
 	private final Deque<Mp3TrackInfo> history = new ArrayDeque<>();
 
 	private Mp3TrackInfo currentTrack;
+	private SpotifyPlaylist activeSpotifyPlaylist;
+	private String activeSpotifyTrackId;
+	private volatile String resolvingSpotifyTitle;
 	private Mp3DecodeWorker decodeWorker;
 	private OpenAlStreamChannel alChannel;
 	private final Map<BlockPos, LocalSpeakerNode> speakerNodes = new LinkedHashMap<>();
@@ -146,9 +153,10 @@ public final class Mp3AudioController {
 	private float lastSentNetworkVolume = -1.0f;
 	private int volumeSyncCooldown = 0;
 
-	public Mp3AudioController(Mp3Config config, Mp3LibraryManager library) {
+	public Mp3AudioController(Mp3Config config, Mp3LibraryManager library, SpotifyManager spotify) {
 		this.config = config;
 		this.library = library;
+		this.spotify = spotify;
 	}
 
 	public Mp3Config config() {
@@ -157,6 +165,22 @@ public final class Mp3AudioController {
 
 	public Mp3LibraryManager library() {
 		return library;
+	}
+
+	public SpotifyManager spotify() {
+		return spotify;
+	}
+
+	public SpotifyPlaylist activeSpotifyPlaylist() {
+		return activeSpotifyPlaylist;
+	}
+
+	public String activeSpotifyTrackId() {
+		return activeSpotifyTrackId;
+	}
+
+	public String resolvingSpotifyTitle() {
+		return resolvingSpotifyTitle;
 	}
 
 	public Mp3TrackInfo currentTrack() {
@@ -395,6 +419,105 @@ public final class Mp3AudioController {
 		}
 	}
 
+	public boolean enqueueSpotifyTrackOnSpeakers(
+			SpotifyTrack track,
+			SpotifyPlaylist playlist,
+			boolean switchActiveIfOwner
+	) {
+		if (track == null) {
+			return false;
+		}
+		if (playlist != null) {
+			this.activeSpotifyPlaylist = playlist;
+		}
+		this.activeBoomboxPos = null;
+		this.activeBoomboxDimension = null;
+		this.speakerSystemMode = true;
+		if (!config.linkedSpeakersEnabled()) {
+			config.setLinkedSpeakersEnabled(true);
+			config.save();
+		}
+
+		Minecraft mc = Minecraft.getInstance();
+		if (totalLinkedSpeakerCount() == 0 && mc != null && mc.level != null && mc.player != null) {
+			scanAndLinkNearbySpeakers(mc.level, mc.player.blockPosition(), DEFAULT_SPEAKER_SCAN_RADIUS);
+		}
+
+		spotify.preCacheTrack(track);
+
+		if (isServerSupporting3D()) {
+			boolean willQueue = activeSpeakerQueueEntry() != null
+					&& (!isLocalPlayerActiveSpeakerDj() || !switchActiveIfOwner || waitingSpeakerQueueCount() > 0);
+			ClientPlayNetworking.send(new C2SQueueAdd(
+					track.toQueueTrackId(),
+					track.fullDisplayLabel(),
+					track.durationSeconds(),
+					switchActiveIfOwner,
+					buildActiveSpeakerTargets()
+			));
+			return willQueue;
+		}
+
+		// Local fallback when on an unmodded server
+		if (!hasActiveTrack() || (switchActiveIfOwner && localFallbackQueue.isEmpty())) {
+			playSpotifyTrackDirect(track, playlist);
+			return false;
+		} else {
+			spotify.resolveOrDownloadTrack(track).thenAccept(resolved -> {
+				if (resolved != null && mc != null) {
+					mc.execute(() -> {
+						if (localFallbackQueue.size() < Mp3Payloads.MAX_QUEUE_ENTRIES) {
+							localFallbackQueue.addLast(resolved);
+						}
+					});
+				}
+			});
+			return true;
+		}
+	}
+
+	public void playSpotifyTrack(SpotifyTrack track, SpotifyPlaylist playlist) {
+		if (track == null) {
+			return;
+		}
+		if (isSpeakerSystemMode()) {
+			enqueueSpotifyTrackOnSpeakers(track, playlist, true);
+			return;
+		}
+		playSpotifyTrackDirect(track, playlist);
+	}
+
+	private void playSpotifyTrackDirect(SpotifyTrack track, SpotifyPlaylist playlist) {
+		if (track == null) {
+			return;
+		}
+		if (playlist != null) {
+			this.activeSpotifyPlaylist = playlist;
+		}
+		this.activeSpotifyTrackId = track.id();
+		Mp3TrackInfo cached = spotify.findCachedTrack(track);
+		if (cached != null) {
+			this.resolvingSpotifyTitle = null;
+			playTrackInternal(cached, 0.0, true);
+			return;
+		}
+		this.resolvingSpotifyTitle = track.fullDisplayLabel();
+		String requestedId = track.id();
+		spotify.resolveOrDownloadTrack(track).thenAccept(resolved -> {
+			Minecraft mc = Minecraft.getInstance();
+			if (mc != null) {
+				mc.execute(() -> {
+					if (requestedId.equals(this.activeSpotifyTrackId)) {
+						this.resolvingSpotifyTitle = null;
+						if (resolved != null) {
+							playTrackInternal(resolved, 0.0, true);
+						}
+					}
+				});
+			}
+		});
+	}
+
 	public void removeSpeakerQueueEntry(UUID entryId) {
 		if (entryId == null) {
 			return;
@@ -499,19 +622,6 @@ public final class Mp3AudioController {
 		if (payload == null) {
 			return;
 		}
-		library.refresh();
-		Mp3TrackInfo match = findTrackByKeyOrTitle(payload.trackId(), payload.trackTitle());
-		if (match == null) {
-			if (isServerSupporting3D()) {
-				ClientPlayNetworking.send(new C2SQueueAction(
-						QueueActionType.ADVANCE_FINISHED,
-						Optional.of(payload.entryId()),
-						buildActiveSpeakerTargets()
-				));
-			}
-			return;
-		}
-
 		Minecraft mc = Minecraft.getInstance();
 		if (mc != null && mc.level != null && payload.speakers() != null && !payload.speakers().isEmpty()) {
 			ResourceKey<Level> dim = mc.level.dimension();
@@ -535,10 +645,75 @@ public final class Mp3AudioController {
 			}
 		}
 
+		if (SpotifyTrack.isSpotifyQueueTrackId(payload.trackId())) {
+			SpotifyTrack sTrack = SpotifyTrack.fromQueueTrackId(payload.trackId(), payload.trackTitle(), 180);
+			if (sTrack == null) {
+				if (isServerSupporting3D()) {
+					ClientPlayNetworking.send(new C2SQueueAction(
+							QueueActionType.ADVANCE_FINISHED,
+							Optional.of(payload.entryId()),
+							buildActiveSpeakerTargets()
+					));
+				}
+				return;
+			}
+			this.activeBoomboxPos = null;
+			this.activeBoomboxDimension = null;
+			this.speakerSystemMode = true;
+			this.activeQueueEntryId = payload.entryId();
+			this.activeSpotifyTrackId = sTrack.id();
+			if (!config.linkedSpeakersEnabled()) {
+				config.setLinkedSpeakersEnabled(true);
+			}
+			Mp3TrackInfo cached = spotify.findCachedTrack(sTrack);
+			if (cached != null) {
+				this.resolvingSpotifyTitle = null;
+				playTrackInternal(cached, 0.0, true);
+				return;
+			}
+			this.resolvingSpotifyTitle = sTrack.fullDisplayLabel();
+			UUID triggerEntryId = payload.entryId();
+			spotify.resolveOrDownloadTrack(sTrack).thenAccept(resolved -> {
+				Minecraft client = Minecraft.getInstance();
+				if (client != null) {
+					client.execute(() -> {
+						if (triggerEntryId.equals(this.activeQueueEntryId)) {
+							this.resolvingSpotifyTitle = null;
+							if (resolved != null) {
+								playTrackInternal(resolved, 0.0, true);
+							} else if (isServerSupporting3D()) {
+								ClientPlayNetworking.send(new C2SQueueAction(
+										QueueActionType.ADVANCE_FINISHED,
+										Optional.of(triggerEntryId),
+										buildActiveSpeakerTargets()
+								));
+							}
+						}
+					});
+				}
+			});
+			return;
+		}
+
+		library.refresh();
+		Mp3TrackInfo match = findTrackByKeyOrTitle(payload.trackId(), payload.trackTitle());
+		if (match == null) {
+			if (isServerSupporting3D()) {
+				ClientPlayNetworking.send(new C2SQueueAction(
+						QueueActionType.ADVANCE_FINISHED,
+						Optional.of(payload.entryId()),
+						buildActiveSpeakerTargets()
+				));
+			}
+			return;
+		}
+
 		this.activeBoomboxPos = null;
 		this.activeBoomboxDimension = null;
 		this.speakerSystemMode = true;
 		this.activeQueueEntryId = payload.entryId();
+		this.activeSpotifyPlaylist = null;
+		this.activeSpotifyTrackId = null;
 		if (!config.linkedSpeakersEnabled()) {
 			config.setLinkedSpeakersEnabled(true);
 		}
@@ -1059,6 +1234,9 @@ public final class Mp3AudioController {
 	}
 
 	public void playTrack(Mp3TrackInfo track) {
+		this.activeSpotifyPlaylist = null;
+		this.activeSpotifyTrackId = null;
+		this.resolvingSpotifyTitle = null;
 		if (isSpeakerSystemMode()) {
 			enqueueTrackOnSpeakers(track, true);
 			return;
@@ -1067,6 +1245,9 @@ public final class Mp3AudioController {
 	}
 
 	public void playTrackOnBoombox(Mp3TrackInfo track, ResourceKey<Level> dimension, BlockPos pos) {
+		this.activeSpotifyPlaylist = null;
+		this.activeSpotifyTrackId = null;
+		this.resolvingSpotifyTitle = null;
 		if (dimension != null && pos != null) {
 			this.activeBoomboxPos = pos.immutable();
 			this.activeBoomboxDimension = dimension;
@@ -1368,6 +1549,26 @@ public final class Mp3AudioController {
 			skipSpeakerQueueTrack();
 			return;
 		}
+		if (activeSpotifyPlaylist != null && activeSpotifyTrackId != null) {
+			List<SpotifyTrack> sTracks = spotify.tracksForPlaylist(activeSpotifyPlaylist);
+			if (!sTracks.isEmpty()) {
+				if (config.shuffle() && sTracks.size() > 1) {
+					SpotifyTrack candidate = null;
+					for (int tries = 0; tries < 6; tries++) {
+						candidate = sTracks.get(random.nextInt(sTracks.size()));
+						if (!candidate.id().equals(activeSpotifyTrackId)) {
+							break;
+						}
+					}
+					playSpotifyTrack(candidate != null ? candidate : sTracks.getFirst(), activeSpotifyPlaylist);
+					return;
+				}
+				int idx = findSpotifyTrackIndex(sTracks, activeSpotifyTrackId);
+				int nextIdx = (idx + 1) % sTracks.size();
+				playSpotifyTrack(sTracks.get(nextIdx), activeSpotifyPlaylist);
+				return;
+			}
+		}
 		if (currentTrack == null) {
 			return;
 		}
@@ -1391,15 +1592,24 @@ public final class Mp3AudioController {
 	}
 
 	public void previousTrack() {
-		if (currentTrack == null) {
+		if (currentTrack == null && activeSpotifyTrackId == null) {
 			return;
+		}
+		if (currentTrack != null && currentPositionSeconds() > 3) {
+			seek(0.0);
+			return;
+		}
+		if (activeSpotifyPlaylist != null && activeSpotifyTrackId != null) {
+			List<SpotifyTrack> sTracks = spotify.tracksForPlaylist(activeSpotifyPlaylist);
+			if (!sTracks.isEmpty()) {
+				int idx = Math.max(0, findSpotifyTrackIndex(sTracks, activeSpotifyTrackId));
+				int prevIdx = (idx - 1 + sTracks.size()) % sTracks.size();
+				playSpotifyTrack(sTracks.get(prevIdx), activeSpotifyPlaylist);
+				return;
+			}
 		}
 		List<Mp3TrackInfo> tracks = library.tracks();
 		if (tracks.isEmpty()) {
-			return;
-		}
-		if (currentPositionSeconds() > 3) {
-			seek(0.0);
 			return;
 		}
 		while (!history.isEmpty()) {
@@ -1730,6 +1940,28 @@ public final class Mp3AudioController {
 
 		stopLocalAndNetwork(true);
 
+		if (activeSpotifyPlaylist != null && activeSpotifyTrackId != null) {
+			List<SpotifyTrack> sTracks = spotify.tracksForPlaylist(activeSpotifyPlaylist);
+			if (!sTracks.isEmpty()) {
+				int idx = findSpotifyTrackIndex(sTracks, activeSpotifyTrackId);
+				if (config.loopMode() == LoopMode.ONE && idx >= 0) {
+					playSpotifyTrack(sTracks.get(idx), activeSpotifyPlaylist);
+					return;
+				}
+				if (config.shuffle()) {
+					nextTrack();
+					return;
+				}
+				if (idx >= 0 && idx + 1 < sTracks.size()) {
+					playSpotifyTrack(sTracks.get(idx + 1), activeSpotifyPlaylist);
+					return;
+				} else if (config.loopMode() == LoopMode.ALL) {
+					playSpotifyTrack(sTracks.getFirst(), activeSpotifyPlaylist);
+					return;
+				}
+			}
+		}
+
 		List<Mp3TrackInfo> tracks = library.tracks();
 		if (finishedTrack == null || tracks.isEmpty()) {
 			currentTrack = null;
@@ -1825,6 +2057,18 @@ public final class Mp3AudioController {
 	private static int findTrackIndex(List<Mp3TrackInfo> tracks, Mp3TrackInfo target) {
 		for (int i = 0; i < tracks.size(); i++) {
 			if (tracks.get(i).file().equals(target.file())) {
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private static int findSpotifyTrackIndex(List<SpotifyTrack> tracks, String trackId) {
+		if (trackId == null) {
+			return -1;
+		}
+		for (int i = 0; i < tracks.size(); i++) {
+			if (trackId.equals(tracks.get(i).id())) {
 				return i;
 			}
 		}

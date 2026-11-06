@@ -1,6 +1,6 @@
-# MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.2`)
+# MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.4`)
 
-![Version 1.3.2](https://img.shields.io/badge/Version-1.3.2-a855f7?style=flat-square)
+![Version 1.3.4](https://img.shields.io/badge/Version-1.3.4-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -14,8 +14,12 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 
 ## Features
 
+- **Spotify Account Linking & Playlist Playback (`v1.3.4`):**
+  - **Spotify Account Verification Gate (`Spot` Tab):** Requires linking your Spotify account before browsing or playing Spotify playlists. Includes a built-in local OAuth 2.0 PKCE & Account Linking Portal (`http://127.0.0.1:8888/spotify`) with a step-by-step setup guide, as well as direct Client ID, Profile URL, or OAuth token linking inside the GUI.
+  - **Full Playlist Pagination (No 100-Song Cap, Rate-Limit Safe):** Fetches entire Spotify playlists of any size (e.g., `250+` up to `5,000` songs) without rate limits by combining Spotify Web API pagination and Partner Pathfinder GraphQL pagination (`fetchPlaylistContents`).
+  - **Studio-Accurate Track Resolution & Caching:** Resolves tracks by matching official YouTube Topic / Official Audio studio masters against the exact Spotify track duration (`±8s` tolerance) while automatically filtering out unofficial `Slowed`, `Sped Up`, `Nightcore`, or `Remix` uploads. Cached streams are stored in `mp3s/.spotify-cache/` and work seamlessly on **Headphones**, a placed **3D Boombox**, and **Linked Speaker Networks** (including the `[+]` **Speaker Playback Queue**).
 - **Linkable 3D Speakers (`mp3player:speaker`) & Speaker Controller (`mp3player:speaker_controller`):**
-  - **Full 16×16×16 Speaker Blocks with Zero Particles:** Placeable directional full-cube studio speakers that emit **no particles** during playback.
+  - **Full 16×16×16 Speaker Blocks with Zero Particles & Unlimited Linking (`Integer.MAX_VALUE`):** Placeable directional full-cube studio speakers that emit **no particles** during playback, with no cap on the number of linkable speakers.
   - **Extended `32×32×32` (`±32` in X, Y, Z) 3D Sound Range & Sample-Accurate Sync:** Every linked speaker plays the music from its exact block coordinates as an **additional sample-synchronized 3D OpenAL stream** (`18m` full-power core, `±32×32×32` coverage up to `76m` max distance / `80m` server relay radius) — audible in 3D to both you and all players in Multiplayer / Essential! Speakers linked mid-song instantly synchronize to the exact active sample frame without echo or delay, and linked speaker connections reset automatically on server join/leave.
   - **Speaker Controller Item (`mp3player:speaker_controller`):** Right-click placed Speaker blocks to link/unlink them, or right-click in the air to open the **Speaker Management & Playback GUI** (featuring **1-click `Scan` within 96 blocks**, per-speaker `ON/OFF` toggle, per-speaker volume `25%–100%`, unlink controls, and full music playback control).
   - **Shared Speaker Playback Queue (`Queue`) with Independent Speaker Networks & Skip-Vote:** Speakers within the `96`-block scan radius form an independent speaker network (allowing e.g. a private "Home-HiFi" network to run completely separately from a "Club" network). When multiple players connect to the same speaker network, their streams never overlap — songs are coordinated through that network's **Speaker Playback Queue** (`Added by: <Player>`), and connecting to a network with an existing queue automatically closes the player's previous separate network. Skipping an active song uses a **Skip-Vote** across all players who have tracks in that network's queue (with an instant skip when only one player has tracks in the queue).
@@ -53,12 +57,21 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 - **Java:** `25+`
 
 ### Getting Started
-1. Drop `mp3player-1.3.2.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
-   > **Essential World Hosting & Multiplayer Note:** To use **3D Speaker Mode**, a placed **Boombox**, or **Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.2.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
+1. Drop `mp3player-1.3.4.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
+   > **Essential World Hosting & Multiplayer Note:** To use **3D Speaker Mode**, a placed **Boombox**, or **Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.4.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
 2. **Add Your Own Audio Files (3 Ways):**
    - **In-Game Button:** Open the MP3 Player or Boombox → Click **"Folder"** *(automatically opens `<minecraft-instance>/mp3s/` in your file manager)*.
    - **Drag & Drop:** Drag `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, or `.ogg` files (or folders) directly onto the open player GUI inside Minecraft.
    - **Manual Copy:** Place your audio files inside `<minecraft-instance>/mp3s/` *(subfolders are scanned automatically)*.
+3. **Link Your Spotify Account (`Spot` Tab — 2 Options):**
+   - Open the MP3 Player or Speaker Controller GUI in-game, click the **`Spot`** button in the top header, and click **`Web`** to open the local linking portal (`http://127.0.0.1:8888/spotify`):
+     - **Option 1 — Quick Link (No Developer App Required):** Enter your Spotify account name (or profile URL) and paste one or more Spotify playlist links. You can also add additional playlist links at any time directly inside the in-game `Spot` tab (`+ Playlist`).
+     - **Option 2 — Official Spotify OAuth 2.0 PKCE Login (Loads All Personal/Private Playlists & Liked Songs):**
+       1. Sign in to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and click **Create app**.
+       2. Enter any **App name** (e.g., `Minecraft MP3 Player`) and **App description**.
+       3. Under **Redirect URIs**, enter `http://127.0.0.1:8888/callback` and click **Add**.
+       4. Under **Which API/SDKs are you planning to use?**, check **Web API**, accept the Terms of Service, and click **Save**.
+       5. Open your new app's **Settings**, copy the 32-character **Client ID** (the *Client Secret* is not needed thanks to PKCE), paste it into the portal (or directly into the in-game input box), and complete the Spotify login in your browser.
 
 ---
 
@@ -147,8 +160,9 @@ src/
         │   └── decoder/                 # Streaming PCM + seek decoders (MP3, M4A, OPUS, WAV, FLAC, OGG)
         ├── config/Mp3Config.java        # Persistent player & Sound Options preferences
         ├── debug/                       # Client-side Netty timeout simulation helper (/mp3timeout)
-        ├── gui/                         # Mp3PlayerScreen (Tracks & Speakers tabs) & SoundOptionsInjector
-        └── library/Mp3LibraryManager.java
+        ├── gui/                         # Mp3PlayerScreen (Tracks, Speakers, Queue & Spotify tabs) & SoundOptionsInjector
+        ├── library/Mp3LibraryManager.java
+        └── spotify/SpotifyManager.java  # Spotify OAuth 2.0 PKCE portal, full playlist pagination & studio audio resolver
 ```
 
 ### Build Instructions
@@ -158,7 +172,7 @@ Requires **JDK 25**:
 .\gradlew.bat build
 ```
 
-The compiled mod JAR will be output to `build/libs/mp3player-1.3.2.jar`.
+The compiled mod JAR will be output to `build/libs/mp3player-1.3.4.jar`.
 
 ---
 

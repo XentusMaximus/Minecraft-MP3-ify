@@ -19,7 +19,7 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
  */
 public final class Mp3Payloads {
 	public static final int MAX_CHUNK_BYTES = 4096;
-	public static final int MAX_LINKED_SPEAKERS = 64;
+	public static final int MAX_LINKED_SPEAKERS = Integer.MAX_VALUE;
 	public static final int MAX_QUEUE_ENTRIES = 64;
 	private static final int MAX_TEXT_LEN = 256;
 
@@ -472,7 +472,7 @@ public final class Mp3Payloads {
 					Optional<List<BlockPos>> retained;
 					if (buf.readBoolean()) {
 						int pCount = Math.max(0, Math.min(MAX_LINKED_SPEAKERS, buf.readVarInt()));
-						List<BlockPos> pTmp = new ArrayList<>(pCount);
+						List<BlockPos> pTmp = new ArrayList<>(Math.min(pCount, 4096));
 						for (int i = 0; i < pCount; i++) {
 							pTmp.add(buf.readBlockPos().immutable());
 						}
@@ -566,7 +566,7 @@ public final class Mp3Payloads {
 		if (count == 0) {
 			return Collections.emptyList();
 		}
-		List<SpeakerTarget> list = new ArrayList<>(count);
+		List<SpeakerTarget> list = new ArrayList<>(Math.min(count, 4096));
 		for (int i = 0; i < count; i++) {
 			BlockPos pos = buf.readBlockPos().immutable();
 			float vol = clampVolume(buf.readFloat());

@@ -59,7 +59,7 @@ public final class SpeakerRelayServer {
 	public static final double SPEAKER_NETWORK_RADIUS = 96.0;
 	private static final double SPEAKER_NETWORK_RADIUS_SQR = SPEAKER_NETWORK_RADIUS * SPEAKER_NETWORK_RADIUS;
 	private static final double MAX_BOOMBOX_CONTROL_SQR = 256.0 * 256.0;
-	private static final double MAX_SPEAKER_CONTROL_SQR = 512.0 * 512.0;
+	private static final double MAX_SPEAKER_CONTROL_SQR = Double.MAX_VALUE;
 	private static final int MAX_BYTES_PER_SECOND = 160 * 1024;
 
 	private static final Map<UUID, ActiveSession> SESSIONS = new ConcurrentHashMap<>();

@@ -87,6 +87,7 @@ public final class Mp3LibraryManager {
 		try (Stream<Path> walk = Files.walk(mp3Directory, 3)) {
 			List<Path> audioFiles = walk
 					.filter(Files::isRegularFile)
+					.filter(p -> !isHiddenCachePath(mp3Directory, p))
 					.filter(AudioFormatType::isSupportedFile)
 					.toList();
 
@@ -144,6 +145,20 @@ public final class Mp3LibraryManager {
 			refresh();
 		}
 		return imported;
+	}
+
+	private static boolean isHiddenCachePath(Path root, Path file) {
+		try {
+			Path rel = root.relativize(file);
+			for (Path part : rel) {
+				String name = part.toString();
+				if (name.startsWith(".")) {
+					return true;
+				}
+			}
+		} catch (IllegalArgumentException ignored) {
+		}
+		return false;
 	}
 
 	private boolean copyIntoLibrary(Path source) {

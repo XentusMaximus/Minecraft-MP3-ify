@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.4] - 2026-11-06
+
+### Added
+- **Spotify Account Linking & Playlist Playback (`ViewTab.SPOTIFY`)**:
+  - Added a dedicated `Spot` tab in the MP3 Player, Boombox, and Speaker Controller GUI that requires linking a Spotify account before browsing and playing Spotify playlists.
+  - Built-in local loopback OAuth 2.0 PKCE & Account Linking Portal (`http://127.0.0.1:8888/spotify`) with a detailed step-by-step Spotify Developer Application setup guide and 1-click Redirect URI copy button, plus direct in-game support for Spotify Client IDs, Profile URLs, and OAuth tokens persisted in `config/mp3player.properties`.
+  - **Full Playlist Pagination (250+ / up to 5,000 Tracks):** Automatically paginates through entire playlists beyond the 100-track Embed limit without hitting rate limits using both the Spotify Web API (`next` pages) and Spotify's Partner Pathfinder GraphQL API (`fetchPlaylistContents`).
+  - **Studio-Accurate Audio Resolution & Caching:** Prioritizes official YouTube Topic / Official Audio studio masters verified against the exact Spotify track duration (`±8s` tolerance) while filtering out unofficial `Slowed`, `Sped Up`, `Nightcore`, `8D`, `Karaoke`, `Cover`, and `Remix` uploads, caching streams in `mp3s/.spotify-cache/` (`spotify_v2_<id>.mp3`) for Headphones, 3D Boomboxes, and Linked Speaker Networks (`+` Queue).
+
+### Changed
+- **Unlimited Linkable Speakers (`Integer.MAX_VALUE`)**:
+  - Raised `Mp3Payloads.MAX_LINKED_SPEAKERS` from `64` to `Integer.MAX_VALUE` (`2,147,483,647`) and removed server speaker control distance caps, allowing an unlimited number of speakers to be linked and streamed simultaneously.
+
+---
+
 ## [1.3.2] - 2026-11-03
 
 ### Added

@@ -45,6 +45,8 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Util;
 
@@ -192,8 +194,8 @@ public final class SpotifyManager {
 		this.spotifyCacheDir = library.mp3Directory().resolve(".spotify-cache");
 		this.binDir = library.mp3Directory().resolve(".bin");
 		this.httpClient = HttpClient.newBuilder()
-				.connectTimeout(Duration.ofSeconds(10))
-				.followRedirects(HttpClient.Redirect.NORMAL)
+				.connectTimeout(Duration.ofSeconds(15))
+				.followRedirects(HttpClient.Redirect.ALWAYS)
 				.build();
 		this.executor = Executors.newCachedThreadPool(r -> {
 			Thread t = new Thread(r, "MP3-Spotify-Worker");
@@ -202,10 +204,15 @@ public final class SpotifyManager {
 		});
 
 		try {
+			library.ensureDirectoryExists();
 			Files.createDirectories(spotifyCacheDir);
+			Files.createDirectories(binDir);
 			purgeLegacyCacheFiles();
 		} catch (IOException ignored) {
 		}
+
+		// Pre-provision yt-dlp in background so it is ready before the first track click
+		this.executor.submit(this::findOrProvisionYtDlp);
 
 		if (config.isSpotifyLinked()) {
 			refreshPlaylistsAsync();
@@ -1628,7 +1635,7 @@ public final class SpotifyManager {
 		return null;
 	}
 
-	private Path findOrProvisionYtDlp() {
+	private synchronized Path findOrProvisionYtDlp() {
 		if (cachedYtDlpBinary != null && Files.isRegularFile(cachedYtDlpBinary)) {
 			ensureYtDlpUpdatedOnce(cachedYtDlpBinary);
 			return cachedYtDlpBinary;
@@ -1636,24 +1643,104 @@ public final class SpotifyManager {
 		boolean isWindows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
 		String exeName = isWindows ? "yt-dlp.exe" : "yt-dlp";
 
-		// 1. Check WinGet Links & local bin folder
-		String localAppData = System.getenv("LOCALAPPDATA");
-		if (isWindows && localAppData != null) {
-			Path wingetLink = Path.of(localAppData, "Microsoft", "WinGet", "Links", "yt-dlp.exe");
-			if (Files.isRegularFile(wingetLink)) {
-				cachedYtDlpBinary = wingetLink;
-				ensureYtDlpUpdatedOnce(wingetLink);
-				return wingetLink;
+		// 1. Check pre-extracted mp3s/.bin/yt-dlp-win/yt-dlp.exe (includes _internal DLLs, no %TEMP% extraction)
+		if (isWindows) {
+			Path unpackedWinBin = binDir.resolve("yt-dlp-win").resolve("yt-dlp.exe");
+			if (Files.isRegularFile(unpackedWinBin) && verifyYtDlpWorks(unpackedWinBin)) {
+				cachedYtDlpBinary = unpackedWinBin;
+				ensureYtDlpUpdatedOnce(unpackedWinBin);
+				return unpackedWinBin;
 			}
 		}
+
+		// 2. Check standalone mp3s/.bin/yt-dlp(.exe)
 		Path localBin = binDir.resolve(exeName);
-		if (Files.isRegularFile(localBin)) {
+		if (isValidStandaloneYtDlp(localBin, isWindows) && verifyYtDlpWorks(localBin)) {
 			cachedYtDlpBinary = localBin;
 			ensureYtDlpUpdatedOnce(localBin);
 			return localBin;
 		}
 
-		// 2. Check system PATH
+		// 3. Auto-download official pre-extracted yt-dlp_win.zip on Windows (bundles vcruntime140.dll & python DLLs
+		//    in _internal/ and avoids PyInstaller %TEMP% self-extraction blocks), with fallback to standalone yt-dlp
+		try {
+			Files.createDirectories(binDir);
+			setStatusMessage("Lade Audio-Engine (yt-dlp) herunter (einmalig ~23 MB)...", 60_000L);
+			Mp3PlayerMod.LOGGER.info("Auto-downloading yt-dlp into {} ...", binDir);
+
+			if (isWindows) {
+				Path zipTargetDir = binDir.resolve("yt-dlp-win");
+				Path unpackedExe = zipTargetDir.resolve("yt-dlp.exe");
+				Path tempZip = binDir.resolve("yt-dlp_win.zip.part");
+				Files.deleteIfExists(tempZip);
+
+				if (downloadBinaryWithFallback(
+						"https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_win.zip",
+						tempZip,
+						10_000_000L
+				)) {
+					extractZipArchive(tempZip, zipTargetDir);
+					Files.deleteIfExists(tempZip);
+					if (Files.isRegularFile(unpackedExe) && verifyYtDlpWorks(unpackedExe)) {
+						Mp3PlayerMod.LOGGER.info("Successfully provisioned yt-dlp at {}", unpackedExe);
+						this.ytDlpUpdateChecked = true;
+						this.cachedYtDlpBinary = unpackedExe;
+						return unpackedExe;
+					}
+				}
+				Files.deleteIfExists(tempZip);
+			}
+
+			Files.deleteIfExists(localBin);
+			Path tempBin = binDir.resolve(exeName + ".part");
+			Files.deleteIfExists(tempBin);
+
+			String downloadUrl = isWindows
+					? "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+					: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+			long minBytes = isWindows ? 12_000_000L : 1_000_000L;
+			if (downloadBinaryWithFallback(downloadUrl, tempBin, minBytes)) {
+				Files.move(tempBin, localBin, StandardCopyOption.REPLACE_EXISTING);
+				localBin.toFile().setExecutable(true);
+				if (verifyYtDlpWorks(localBin)) {
+					Mp3PlayerMod.LOGGER.info("Successfully provisioned standalone yt-dlp at {}", localBin);
+					this.ytDlpUpdateChecked = true;
+					this.cachedYtDlpBinary = localBin;
+					return localBin;
+				}
+			}
+			Files.deleteIfExists(tempBin);
+		} catch (Exception e) {
+			Mp3PlayerMod.LOGGER.warn("Could not auto-download yt-dlp into mp3s/.bin: {}", e.getMessage());
+		}
+
+		// 4. Fallback: Check WinGet Links, WinGet Packages & system PATH if offline
+		String localAppData = System.getenv("LOCALAPPDATA");
+		if (isWindows && localAppData != null) {
+			Path wingetLink = Path.of(localAppData, "Microsoft", "WinGet", "Links", "yt-dlp.exe");
+			if (isValidStandaloneYtDlp(wingetLink, true) && verifyYtDlpWorks(wingetLink)) {
+				cachedYtDlpBinary = wingetLink;
+				ensureYtDlpUpdatedOnce(wingetLink);
+				return wingetLink;
+			}
+			Path wingetPkgs = Path.of(localAppData, "Microsoft", "WinGet", "Packages");
+			if (Files.isDirectory(wingetPkgs)) {
+				try (Stream<Path> walk = Files.walk(wingetPkgs, 4)) {
+					Path found = walk
+							.filter(p -> isValidStandaloneYtDlp(p, true))
+							.filter(p -> p.getFileName().toString().equalsIgnoreCase("yt-dlp.exe"))
+							.findFirst()
+							.orElse(null);
+					if (found != null && verifyYtDlpWorks(found)) {
+						cachedYtDlpBinary = found;
+						ensureYtDlpUpdatedOnce(found);
+						return found;
+					}
+				} catch (IOException ignored) {
+				}
+			}
+		}
+
 		String pathEnv = System.getenv("PATH");
 		if (pathEnv != null) {
 			for (String entry : pathEnv.split(java.io.File.pathSeparator)) {
@@ -1662,7 +1749,7 @@ public final class SpotifyManager {
 				}
 				try {
 					Path candidate = Path.of(entry.trim()).resolve(exeName);
-					if (Files.isRegularFile(candidate)) {
+					if (Files.isRegularFile(candidate) && verifyYtDlpWorks(candidate)) {
 						cachedYtDlpBinary = candidate;
 						ensureYtDlpUpdatedOnce(candidate);
 						return candidate;
@@ -1671,31 +1758,125 @@ public final class SpotifyManager {
 				}
 			}
 		}
+		return null;
+	}
 
-		// 3. Auto-download official standalone yt-dlp binary into mp3s/.bin/
+	private boolean downloadBinaryWithFallback(String url, Path destFile, long minExpectedBytes) {
+		// Attempt 1: Java HttpClient
 		try {
-			Files.createDirectories(binDir);
-			String downloadUrl = isWindows
-					? "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
-					: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
 			HttpRequest req = HttpRequest.newBuilder()
-					.uri(URI.create(downloadUrl))
-					.header("User-Agent", "Mozilla/5.0")
+					.uri(URI.create(url))
+					.timeout(Duration.ofSeconds(90))
+					.header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 					.GET()
 					.build();
 			HttpResponse<InputStream> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofInputStream());
 			if (resp.statusCode() == 200) {
 				try (InputStream in = resp.body()) {
-					Files.copy(in, localBin, StandardCopyOption.REPLACE_EXISTING);
+					Files.copy(in, destFile, StandardCopyOption.REPLACE_EXISTING);
 				}
-				localBin.toFile().setExecutable(true);
-				cachedYtDlpBinary = localBin;
-				return localBin;
+				if (Files.isRegularFile(destFile) && Files.size(destFile) >= minExpectedBytes) {
+					return true;
+				}
 			}
 		} catch (Exception e) {
-			Mp3PlayerMod.LOGGER.debug("Could not auto-provision yt-dlp: {}", e.getMessage());
+			Mp3PlayerMod.LOGGER.debug("Primary HttpClient download failed for {}: {}", url, e.getMessage());
 		}
-		return null;
+
+		// Attempt 2: Classic HttpURLConnection (HTTP/1.1 with manual redirect handling)
+		try {
+			Files.deleteIfExists(destFile);
+			String currentUrl = url;
+			for (int redirects = 0; redirects < 6; redirects++) {
+				java.net.HttpURLConnection conn = (java.net.HttpURLConnection) URI.create(currentUrl).toURL().openConnection();
+				conn.setInstanceFollowRedirects(false);
+				conn.setConnectTimeout(15_000);
+				conn.setReadTimeout(90_000);
+				conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+				int code = conn.getResponseCode();
+				if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+					String loc = conn.getHeaderField("Location");
+					conn.disconnect();
+					if (loc == null || loc.isBlank()) {
+						break;
+					}
+					currentUrl = loc;
+					continue;
+				}
+				if (code == 200) {
+					try (InputStream in = conn.getInputStream()) {
+						Files.copy(in, destFile, StandardCopyOption.REPLACE_EXISTING);
+					}
+					conn.disconnect();
+					if (Files.isRegularFile(destFile) && Files.size(destFile) >= minExpectedBytes) {
+						return true;
+					}
+				}
+				conn.disconnect();
+				break;
+			}
+		} catch (Exception e) {
+			Mp3PlayerMod.LOGGER.debug("Fallback HttpURLConnection download failed for {}: {}", url, e.getMessage());
+		}
+		return false;
+	}
+
+	private static void extractZipArchive(Path zipFile, Path targetDir) throws IOException {
+		Files.createDirectories(targetDir);
+		try (InputStream fis = Files.newInputStream(zipFile);
+			 ZipInputStream zis = new ZipInputStream(fis)) {
+			ZipEntry entry;
+			while ((entry = zis.getNextEntry()) != null) {
+				Path outPath = targetDir.resolve(entry.getName()).normalize();
+				if (!outPath.startsWith(targetDir)) {
+					continue;
+				}
+				if (entry.isDirectory()) {
+					Files.createDirectories(outPath);
+				} else {
+					if (outPath.getParent() != null) {
+						Files.createDirectories(outPath.getParent());
+					}
+					Files.copy(zis, outPath, StandardCopyOption.REPLACE_EXISTING);
+				}
+				zis.closeEntry();
+			}
+		}
+	}
+
+	private static boolean isValidStandaloneYtDlp(Path path, boolean isWindows) {
+		try {
+			long minBytes = isWindows ? 12_000_000L : 1_000_000L;
+			return path != null && Files.isRegularFile(path) && Files.size(path) >= minBytes;
+		} catch (IOException e) {
+			return false;
+		}
+	}
+
+	private static boolean verifyYtDlpWorks(Path ytDlpBin) {
+		for (int attempt = 0; attempt < 3; attempt++) {
+			try {
+				ProcessBuilder pb = new ProcessBuilder(ytDlpBin.toString(), "--version");
+				pb.redirectErrorStream(true);
+				Process p = pb.start();
+				String out;
+				try (InputStream in = p.getInputStream()) {
+					out = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
+				}
+				int exit = p.waitFor();
+				if (exit == 0 && !out.isEmpty()) {
+					return true;
+				}
+			} catch (Exception e) {
+				try {
+					Thread.sleep(600L);
+				} catch (InterruptedException ie) {
+					Thread.currentThread().interrupt();
+					break;
+				}
+			}
+		}
+		return false;
 	}
 
 	private void ensureYtDlpUpdatedOnce(Path ytDlpBin) {

@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unlimited Linkable Speakers (`Integer.MAX_VALUE`)**:
   - Raised `Mp3Payloads.MAX_LINKED_SPEAKERS` from `64` to `Integer.MAX_VALUE` (`2,147,483,647`) and removed server speaker control distance caps, allowing an unlimited number of speakers to be linked and streamed simultaneously.
 
+### Fixed
+- **Spotify Cache & Automatic `yt-dlp` Provisioning on Clean Systems (Hotfix)**:
+  - Automatically downloads and extracts `yt-dlp_win.zip` (bundling all required `_internal` runtime DLLs such as `vcruntime140.dll` and `python314.dll` without `%TEMP%` self-extraction) into `mp3s/.bin/yt-dlp-win/` on startup using a dual `HttpClient` + `HttpURLConnection` fallback and `yt-dlp --version` startup verification for users who do not have `yt-dlp` installed.
+  - Added native pure-Java fragmented DASH `.m4a` (`moof`/`traf`/`trun` + `mdat`) frame decoding and O(1) seeking in `M4aFormatDecoder` so cached Spotify `.m4a` streams play seamlessly on systems without `ffmpeg` installed.
+
 ---
 
 ## [1.3.2] - 2026-11-03

@@ -10,8 +10,10 @@ import de.vibecoded.mp3player.Mp3PlayerMod;
 import de.vibecoded.mp3player.client.config.Mp3Config;
 import de.vibecoded.mp3player.mp3.AudioMetadataParsers;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -372,41 +374,65 @@ public final class YtMusicManager {
 					}
 				}
 
-				// 1. If Browser Cookie Sync is configured, automatically discover all saved playlists
-				//    in the user's YouTube / YouTube Music Library (including playlists created by other users!)
-				String cookieBrowser = config.ytMusicCookieBrowser();
-				if (cookieBrowser != null && !cookieBrowser.isBlank()) {
-					discoverLibraryPlaylists("https://www.youtube.com/feed/playlists", true, loaded);
-					discoverLibraryPlaylists("https://music.youtube.com/library/playlists", true, loaded);
+				// 1. Always add "Liked Music" (LM) first if saved or if Browser / cookies.txt is active
+				boolean hasCookieAuth = (config.ytMusicCookieBrowser() != null && !config.ytMusicCookieBrowser().isBlank())
+						|| resolveCookiesFile() != null;
+				if (hasCookieAuth || config.ytMusicSavedPlaylists().contains(LIKED_MUSIC_ID)) {
+					List<YtMusicTrack> existingLm = playlistTracksCache.get(LIKED_MUSIC_ID);
+					loaded.put(LIKED_MUSIC_ID, new YtMusicPlaylist(
+							LIKED_MUSIC_ID,
+							SpotifyManager.isGermanLocale() ? "Mag ich (Liked Music)" : "Liked Music",
+							accountName(),
+							existingLm != null ? existingLm.size() : 0,
+							false
+					));
 				}
 
-				// 2. If user linked a @Handle or channel name, also discover playlists from their /playlists tab
+				// 2. If Browser Cookie Sync or cookies.txt is configured, automatically discover all saved playlists
+				//    in the user's YouTube Library (including playlists created by other users!)
+				if (hasCookieAuth) {
+					discoverLibraryPlaylists("https://www.youtube.com/feed/playlists", true, loaded);
+				}
+
+				// 3. If user linked a @Handle or channel name, also discover playlists from their /playlists tab
 				String acc = config.ytMusicAccountName();
 				if (acc != null && !acc.isBlank() && !acc.contains(" ")) {
 					String handle = acc.startsWith("@") ? acc : ("@" + acc);
 					discoverLibraryPlaylists("https://www.youtube.com/" + handle + "/playlists", false, loaded);
 				}
 
-				// 3. Load all explicitly saved playlists (including any third-party playlist/album URLs)
+				// 4. Add all explicitly saved playlists immediately so the UI list is never blocked by large playlists,
+				//    then load their metadata/tracks!
 				for (String savedId : config.ytMusicSavedPlaylists()) {
 					if (savedId == null || savedId.isBlank() || loaded.containsKey(savedId)) {
 						continue;
 					}
-					YtMusicPlaylist fetched = fetchPlaylistMetadataAndTracks(savedId);
-					if (fetched != null) {
-						loaded.put(savedId, fetched);
-					} else if (LIKED_MUSIC_ID.equals(savedId)) {
-						loaded.put(savedId, new YtMusicPlaylist(
-								LIKED_MUSIC_ID,
-								SpotifyManager.isGermanLocale() ? "Mag ich (Liked Music)" : "Liked Music",
-								accountName(),
-								0,
-								false
-						));
-					}
+					List<YtMusicTrack> existingTracks = playlistTracksCache.get(savedId);
+					loaded.put(savedId, new YtMusicPlaylist(
+							savedId,
+							"Playlist " + savedId,
+							accountName(),
+							existingTracks != null ? existingTracks.size() : 0,
+							false
+					));
 				}
 
 				this.playlists = List.copyOf(loaded.values());
+
+				// 5. Fetch metadata & full track lists in background for saved playlists (including 800+ song Liked Music)
+				for (String savedId : config.ytMusicSavedPlaylists()) {
+					if (savedId == null || savedId.isBlank()) {
+						continue;
+					}
+					List<YtMusicTrack> existingTracks = playlistTracksCache.get(savedId);
+					if (existingTracks == null || existingTracks.isEmpty()) {
+						YtMusicPlaylist fetched = fetchPlaylistMetadataAndTracks(savedId);
+						if (fetched != null) {
+							loaded.put(savedId, fetched);
+							this.playlists = List.copyOf(loaded.values());
+						}
+					}
+				}
 			} catch (Exception e) {
 				Mp3PlayerMod.LOGGER.warn("Failed to refresh YouTube Music playlists", e);
 			} finally {
@@ -430,7 +456,7 @@ public final class YtMusicManager {
 		if (ytDlp == null) {
 			return;
 		}
-		JsonObject root = executeYtDlpJsonDump(ytDlp, tabUrl, useCookies);
+		JsonObject root = runYtDlpDumpCommand(ytDlp, tabUrl, useCookies ? config.ytMusicCookieBrowser() : null);
 		if (root == null || !root.has("entries") || !root.get("entries").isJsonArray()) {
 			return;
 		}
@@ -441,15 +467,18 @@ public final class YtMusicManager {
 			}
 			JsonObject obj = el.getAsJsonObject();
 			String id = getJsonString(obj, "id");
+			if ("WL".equalsIgnoreCase(id) || "LL".equalsIgnoreCase(id) || "LM".equalsIgnoreCase(id)) {
+				continue;
+			}
 			String url = getJsonString(obj, "url");
 			String plId = extractPlaylistId(id != null ? id : url);
 			if (plId == null && url != null) {
 				plId = extractPlaylistId(url);
 			}
 			String title = getJsonString(obj, "title");
-			if (plId != null && title != null && !title.isBlank() && !loaded.containsKey(plId)) {
+			if (plId != null && !LIKED_MUSIC_ID.equalsIgnoreCase(plId) && title != null && !title.isBlank() && !loaded.containsKey(plId)) {
 				String owner = getJsonString(obj, "uploader");
-				if (owner == null || owner.isBlank() || "Playlist".equalsIgnoreCase(owner)) {
+				if (owner == null || owner.isBlank() || "Playlist".equalsIgnoreCase(owner) || "View full playlist".equalsIgnoreCase(owner)) {
 					owner = accountName();
 				}
 				loaded.put(plId, new YtMusicPlaylist(plId, title, cleanArtistName(owner), 0, false));
@@ -530,7 +559,7 @@ public final class YtMusicManager {
 	}
 
 	private static final String[] CANDIDATE_BROWSERS = {
-			"firefox", "edge", "chrome", "brave", "opera", "vivaldi"
+			"firefox", "edge", "chrome", "brave", "opera", "opera:Opera GX Stable", "vivaldi"
 	};
 
 	private YtMusicPlaylist fetchPlaylistMetadataAndTracks(String playlistId) {
@@ -540,31 +569,67 @@ public final class YtMusicManager {
 		}
 		boolean de = SpotifyManager.isGermanLocale();
 		boolean isLikedMusic = LIKED_MUSIC_ID.equalsIgnoreCase(playlistId) || "LL".equalsIgnoreCase(playlistId);
+		setStatusMessage(
+				de ? "Lade YouTube Music Songs (auch große Listen mit 800+ Songs)..."
+						: "Loading YouTube Music tracks (supports 800+ track playlists)...",
+				35_000L
+		);
 
-		// Note: yt-dlp redirects music.youtube.com playlists to www.youtube.com, where Liked Music / Liked Videos
-		// uses playlist ID "LL" (while "LM" returns "The playlist does not exist" on www.youtube.com).
-		String url;
+		List<YtMusicTrack> tracks = new ArrayList<>();
+		String[] metaHolder = new String[2]; // [0]=title, [1]=uploader
+
 		if (isLikedMusic) {
-			url = "https://www.youtube.com/playlist?list=LL";
-		} else if (playlistId.startsWith("browse:")) {
-			url = "https://music.youtube.com/browse/" + playlistId.substring("browse:".length());
+			// Try YouTube Music's "LM" (Liked Music) and YouTube's "LL" (Liked videos),
+			// streaming tracks page-by-page so 800+ song lists appear immediately without blocking!
+			Map<String, YtMusicTrack> merged = new LinkedHashMap<>();
+			streamPlaylistTracksWithCookieFallback(
+					ytDlp,
+					playlistId,
+					"https://music.youtube.com/playlist?list=LM",
+					true,
+					merged,
+					metaHolder
+			);
+			streamPlaylistTracksWithCookieFallback(
+					ytDlp,
+					playlistId,
+					"https://www.youtube.com/playlist?list=LL",
+					true,
+					merged,
+					metaHolder
+			);
+			tracks.addAll(merged.values());
+			if (tracks.isEmpty()) {
+				setStatusMessage(
+						de ? "Für 'Liked Music' bitte Firefox nutzen oder cookies.txt im Web-Portal einfügen (Chrome/Edge sperren Cookies)!"
+								: "For 'Liked Music', please use Firefox or paste cookies.txt in the Web Portal (Chrome/Edge lock cookies)!",
+						12_000L
+				);
+				return null;
+			}
 		} else {
-			url = "https://music.youtube.com/playlist?list=" + playlistId;
+			String url = playlistId.startsWith("browse:")
+					? ("https://music.youtube.com/browse/" + playlistId.substring("browse:".length()))
+					: ("https://music.youtube.com/playlist?list=" + playlistId);
+			Map<String, YtMusicTrack> merged = new LinkedHashMap<>();
+			streamPlaylistTracksWithCookieFallback(ytDlp, playlistId, url, false, merged, metaHolder);
+			if (merged.isEmpty() && !playlistId.startsWith("browse:")) {
+				streamPlaylistTracksWithCookieFallback(
+						ytDlp,
+						playlistId,
+						"https://www.youtube.com/playlist?list=" + playlistId,
+						false,
+						merged,
+						metaHolder
+				);
+			}
+			tracks.addAll(merged.values());
+			if (tracks.isEmpty()) {
+				return null;
+			}
 		}
-		setStatusMessage(de ? "Lade YouTube Music Playlist..." : "Loading YouTube Music playlist...", 20_000L);
 
-		JsonObject root = isLikedMusic
-				? executeYtDlpJsonDumpRequireCookies(ytDlp, url)
-				: executeYtDlpJsonDump(ytDlp, url, true);
-		if (root == null && !isLikedMusic && !playlistId.startsWith("browse:")) {
-			// Fallback to www.youtube.com/playlist?list=...
-			root = executeYtDlpJsonDump(ytDlp, "https://www.youtube.com/playlist?list=" + playlistId, true);
-		}
-		if (root == null) {
-			return null;
-		}
-
-		String title = getJsonString(root, "title");
+		String title = metaHolder[0];
 		if (isLikedMusic || title == null || title.isBlank() || "Liked videos".equalsIgnoreCase(title)) {
 			if (isLikedMusic) {
 				title = de ? "Mag ich (Liked Music)" : "Liked Music";
@@ -572,28 +637,175 @@ public final class YtMusicManager {
 				title = "Playlist " + playlistId;
 			}
 		}
-		String uploader = getJsonString(root, "uploader");
-		if (uploader == null || uploader.isBlank()) {
-			uploader = getJsonString(root, "channel");
-		}
+		String uploader = metaHolder[1];
 		if (uploader == null || uploader.isBlank()) {
 			uploader = accountName();
 		}
 
-		List<YtMusicTrack> tracks = parseEntriesArray(root);
 		playlistTracksCache.put(playlistId, List.copyOf(tracks));
-		setStatusMessage(
-				de ? ("Playlist geladen (" + tracks.size() + " Songs)") : ("Loaded playlist (" + tracks.size() + " tracks)"),
-				3000L
-		);
-
-		return new YtMusicPlaylist(
+		YtMusicPlaylist finalPl = new YtMusicPlaylist(
 				playlistId,
 				title,
 				cleanArtistName(uploader),
 				tracks.size(),
 				false
 		);
+		updatePlaylistEntryInList(finalPl);
+		setStatusMessage(
+				de ? ("Playlist geladen (" + tracks.size() + " Songs)") : ("Loaded playlist (" + tracks.size() + " tracks)"),
+				3500L
+		);
+		return finalPl;
+	}
+
+	private void streamPlaylistTracksWithCookieFallback(
+			Path ytDlp,
+			String playlistId,
+			String url,
+			boolean requireAuth,
+			Map<String, YtMusicTrack> outTracks,
+			String[] metaHolder
+	) {
+		int before = outTracks.size();
+		Path cookiesFile = resolveCookiesFile();
+		if (cookiesFile != null) {
+			streamPlaylistTracksFromYtDlp(ytDlp, playlistId, url, null, cookiesFile, outTracks, metaHolder);
+			if (outTracks.size() > before) {
+				return;
+			}
+		}
+
+		String configuredBrowser = config.ytMusicCookieBrowser();
+		if (configuredBrowser != null && !configuredBrowser.isBlank()) {
+			streamPlaylistTracksFromYtDlp(ytDlp, playlistId, url, configuredBrowser, null, outTracks, metaHolder);
+			if (outTracks.size() > before) {
+				return;
+			}
+		}
+
+		if (!requireAuth) {
+			streamPlaylistTracksFromYtDlp(ytDlp, playlistId, url, null, null, outTracks, metaHolder);
+			if (outTracks.size() > before) {
+				return;
+			}
+		}
+
+		for (String candidate : CANDIDATE_BROWSERS) {
+			if (candidate.equalsIgnoreCase(configuredBrowser)) {
+				continue;
+			}
+			streamPlaylistTracksFromYtDlp(ytDlp, playlistId, url, candidate, null, outTracks, metaHolder);
+			if (outTracks.size() > before) {
+				config.setYtMusicCookieBrowser(candidate);
+				config.save();
+				return;
+			}
+		}
+	}
+
+	/**
+	 * Streams flat-playlist entries line-by-line (-j) with stderr discarded at the OS level so that
+	 * large playlists (e.g. 813+ Liked Music tracks across 9+ pages) never deadlock on stderr pipe buffers
+	 * and populate the UI progressively every 25 tracks as each page arrives!
+	 */
+	private void streamPlaylistTracksFromYtDlp(
+			Path ytDlp,
+			String playlistId,
+			String url,
+			String cookieBrowser,
+			Path cookiesFile,
+			Map<String, YtMusicTrack> outTracks,
+			String[] metaHolder
+	) {
+		try {
+			List<String> cmd = new ArrayList<>();
+			cmd.add(ytDlp.toString());
+			cmd.add("--flat-playlist");
+			cmd.add("-j");
+			cmd.add("--no-warnings");
+			cmd.add("--extractor-args");
+			cmd.add("youtubetab:skip=authcheck");
+			if (cookiesFile != null && Files.isRegularFile(cookiesFile)) {
+				cmd.add("--cookies");
+				cmd.add(cookiesFile.toString());
+			} else if (cookieBrowser != null && !cookieBrowser.isBlank()) {
+				cmd.add("--cookies-from-browser");
+				cmd.add(cookieBrowser);
+			}
+			cmd.add(url);
+
+			ProcessBuilder pb = new ProcessBuilder(cmd);
+			pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+			Process proc = pb.start();
+			int addedSinceLastFlush = 0;
+
+			try (BufferedReader reader = new BufferedReader(new InputStreamReader(proc.getInputStream(), StandardCharsets.UTF_8))) {
+				String line;
+				while ((line = reader.readLine()) != null) {
+					line = line.trim();
+					if (line.isEmpty() || line.charAt(0) != '{') {
+						continue;
+					}
+					try {
+						JsonObject obj = JsonParser.parseString(line).getAsJsonObject();
+						if (metaHolder[0] == null) {
+							String plTitle = getJsonString(obj, "playlist_title");
+							if (plTitle != null && !plTitle.isBlank()) {
+								metaHolder[0] = plTitle;
+							}
+						}
+						if (metaHolder[1] == null) {
+							String plUploader = getJsonString(obj, "playlist_uploader");
+							if (plUploader != null && !plUploader.isBlank()) {
+								metaHolder[1] = plUploader;
+							}
+						}
+						YtMusicTrack track = parseSingleEntry(obj);
+						if (track != null && !outTracks.containsKey(track.id())) {
+							outTracks.put(track.id(), track);
+							addedSinceLastFlush++;
+							if (addedSinceLastFlush >= 25) {
+								addedSinceLastFlush = 0;
+								List<YtMusicTrack> snapshot = List.copyOf(outTracks.values());
+								playlistTracksCache.put(playlistId, snapshot);
+								String displayTitle = LIKED_MUSIC_ID.equalsIgnoreCase(playlistId)
+										? (SpotifyManager.isGermanLocale() ? "Mag ich (Liked Music)" : "Liked Music")
+										: (metaHolder[0] != null ? metaHolder[0] : ("Playlist " + playlistId));
+								updatePlaylistEntryInList(new YtMusicPlaylist(
+										playlistId,
+										displayTitle,
+										metaHolder[1] != null ? cleanArtistName(metaHolder[1]) : accountName(),
+										snapshot.size(),
+										false
+								));
+							}
+						}
+					} catch (Exception ignored) {
+					}
+				}
+			}
+			proc.waitFor();
+			if (!outTracks.isEmpty()) {
+				playlistTracksCache.put(playlistId, List.copyOf(outTracks.values()));
+			}
+		} catch (Exception e) {
+			Mp3PlayerMod.LOGGER.debug("yt-dlp stream failed for {}: {}", url, e.getMessage());
+		}
+	}
+
+	private Path resolveCookiesFile() {
+		Path binCookies = spotifyManager.cacheDirectory().getParent().resolve(".bin").resolve("ytm_cookies.txt");
+		try {
+			if (Files.isRegularFile(binCookies) && Files.size(binCookies) > 32L) {
+				return binCookies;
+			}
+			Path rootCookies = spotifyManager.cacheDirectory().getParent().resolve("cookies.txt");
+			if (Files.isRegularFile(rootCookies) && Files.size(rootCookies) > 32L) {
+				return rootCookies;
+			}
+		} catch (IOException ignored) {
+		}
+		return null;
 	}
 
 	private List<YtMusicTrack> runYtMusicQueryTracks(String query) {
@@ -697,14 +909,20 @@ public final class YtMusicManager {
 			cmd.add("--flat-playlist");
 			cmd.add("--dump-single-json");
 			cmd.add("--no-warnings");
-			if (cookieBrowser != null && !cookieBrowser.isBlank()) {
+			cmd.add("--extractor-args");
+			cmd.add("youtubetab:skip=authcheck");
+			Path cookiesFile = resolveCookiesFile();
+			if (cookiesFile != null) {
+				cmd.add("--cookies");
+				cmd.add(cookiesFile.toString());
+			} else if (cookieBrowser != null && !cookieBrowser.isBlank()) {
 				cmd.add("--cookies-from-browser");
 				cmd.add(cookieBrowser);
 			}
 			cmd.add(urlOrSearch);
 
 			ProcessBuilder pb = new ProcessBuilder(cmd);
-			pb.redirectErrorStream(false);
+			pb.redirectError(ProcessBuilder.Redirect.DISCARD);
 			Process proc = pb.start();
 			String stdout;
 			try (InputStream in = proc.getInputStream()) {
@@ -1064,26 +1282,29 @@ public final class YtMusicManager {
 				    <h1>Link YouTube Music with Minecraft</h1>
 				    <p>Link your YouTube Music account to browse and play your full playlists (no 100-song cap) and use live search directly inside Minecraft on Headphones, Boomboxes, and Speaker Networks:</p>
 
-				    <form action="/link" method="GET">
+				    <form action="/link" method="POST">
 				      <h2>1. Your YouTube Music Account / Channel Name</h2>
 				      <label><b>Your Name, @Handle, or YouTube Channel URL:</b></label>
 				      <input type="text" name="account" value="%ACCOUNT%" placeholder="e.g. YourName or https://www.youtube.com/@YourHandle" required />
 
 				      <h2>2. Your YouTube Music Playlists (Optional – you can also add more in-game anytime)</h2>
 				      <label><b>YouTube Music / YouTube Playlist URLs (one per line):</b></label>
-				      <textarea name="playlists" rows="4" placeholder="https://music.youtube.com/playlist?list=PL..."></textarea>
+				      <textarea name="playlists" rows="3" placeholder="https://music.youtube.com/playlist?list=PL..."></textarea>
 
-				      <h2>3. Optional: Browser Session for Private Playlists & "Liked Music" (LM)</h2>
-				      <label><b>Select Browser (only needed if you want to load private playlists / "Liked Music"):</b></label>
+				      <h2>3. Optional: Browser Session / cookies.txt for Private Playlists & "Liked Music" (800+ Songs)</h2>
+				      <label><b>Select Browser (Firefox works directly; Chrome/Edge/Brave/Opera on Windows lock cookies via DPAPI):</b></label>
 				      <select name="browser">
 				        <option value="">No Browser Cookie Sync (Public / Unlisted Playlists & Live Search only)</option>
-				        <option value="firefox">Firefox (Recommended)</option>
+				        <option value="firefox">Firefox (Recommended – Direct Auto-Sync)</option>
 				        <option value="edge">Microsoft Edge</option>
 				        <option value="chrome">Google Chrome</option>
 				        <option value="brave">Brave</option>
-				        <option value="opera">Opera / Opera GX</option>
+				        <option value="opera">Opera</option>
+				        <option value="opera:Opera GX Stable">Opera GX</option>
 				        <option value="vivaldi">Vivaldi</option>
 				      </select>
+				      <label><b>For Chrome / Edge / Brave / Opera GX Users: Paste Netscape <code>cookies.txt</code> content here (e.g. via "Get cookies.txt LOCALLY" extension on music.youtube.com) to unlock "Liked Music":</b></label>
+				      <textarea name="cookies_txt" rows="3" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	..."></textarea>
 
 				      <button type="submit" class="primary">Link YouTube Music with Minecraft Now</button>
 				    </form>
@@ -1094,26 +1315,29 @@ public final class YtMusicManager {
 				    <h1>YouTube Music mit Minecraft verknüpfen</h1>
 				    <p>Verknüpfe deinen YouTube Music Account, um deine Playlists (ohne 100-Song-Limit) und die Live-Suche direkt in Minecraft über Kopfhörer, Boombox und Lautsprecher-Netzwerke abzuspielen:</p>
 
-				    <form action="/link" method="GET">
+				    <form action="/link" method="POST">
 				      <h2>1. Dein YouTube Music Account / Kanalname</h2>
 				      <label><b>Dein Name, @Handle oder YouTube-Kanal-Link:</b></label>
 				      <input type="text" name="account" value="%ACCOUNT%" placeholder="z. B. DeinName oder https://www.youtube.com/@DeinHandle" required />
 
 				      <h2>2. Deine YouTube Music Playlists (Optional – jederzeit auch im Spiel ergänzbar)</h2>
 				      <label><b>YouTube Music / YouTube Playlist-Links (einer pro Zeile):</b></label>
-				      <textarea name="playlists" rows="4" placeholder="https://music.youtube.com/playlist?list=PL..."></textarea>
+				      <textarea name="playlists" rows="3" placeholder="https://music.youtube.com/playlist?list=PL..."></textarea>
 
-				      <h2>3. Optional: Browser-Session für Private Playlists & „Mag ich"-Songs (LM)</h2>
-				      <label><b>Browser auswählen (nur falls du private Listen / „Mag ich"-Songs laden möchtest):</b></label>
+				      <h2>3. Optional: Browser-Session / cookies.txt für Private Playlists & „Mag ich"-Songs (800+ Songs)</h2>
+				      <label><b>Browser auswählen (Firefox funktioniert direkt; Chrome/Edge/Brave/Opera sperren unter Windows ihre Cookie-Datenbank per DPAPI):</b></label>
 				      <select name="browser">
 				        <option value="">Kein Browser-Cookie-Sync (Nur öffentliche / nicht gelistete Playlists & Live-Suche)</option>
-				        <option value="firefox">Firefox (Empfohlen)</option>
+				        <option value="firefox">Firefox (Empfohlen – Direkter Auto-Sync)</option>
 				        <option value="edge">Microsoft Edge</option>
 				        <option value="chrome">Google Chrome</option>
 				        <option value="brave">Brave</option>
-				        <option value="opera">Opera / Opera GX</option>
+				        <option value="opera">Opera</option>
+				        <option value="opera:Opera GX Stable">Opera GX</option>
 				        <option value="vivaldi">Vivaldi</option>
 				      </select>
+				      <label><b>Für Chrome / Edge / Brave / Opera GX Nutzer: Füge hier den Inhalt einer exportierten Netscape <code>cookies.txt</code> ein (z. B. mit der Browser-Erweiterung „Get cookies.txt LOCALLY" auf music.youtube.com), um „Liked Music" freizuschalten:</b></label>
+				      <textarea name="cookies_txt" rows="3" placeholder="# Netscape HTTP Cookie File&#10;.youtube.com	TRUE	/	TRUE	..."></textarea>
 
 				      <button type="submit" class="primary">YouTube Music jetzt mit Minecraft verknüpfen</button>
 				    </form>
@@ -1129,10 +1353,20 @@ public final class YtMusicManager {
 	}
 
 	private void handlePortalSubmit(HttpExchange exchange) throws IOException {
-		Map<String, String> params = parseQueryParams(exchange.getRequestURI().getRawQuery());
+		String rawParams = exchange.getRequestURI().getRawQuery();
+		if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+			try (InputStream in = exchange.getRequestBody()) {
+				String bodyStr = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+				if (!bodyStr.isBlank()) {
+					rawParams = (rawParams == null || rawParams.isBlank()) ? bodyStr : (rawParams + "&" + bodyStr);
+				}
+			}
+		}
+		Map<String, String> params = parseQueryParams(rawParams);
 		String account = params.getOrDefault("account", "").trim();
 		String rawPlaylists = params.getOrDefault("playlists", "").trim();
-		String browser = params.getOrDefault("browser", "").trim().toLowerCase(Locale.ROOT);
+		String browser = params.getOrDefault("browser", "").trim();
+		String cookiesTxt = params.getOrDefault("cookies_txt", "").trim();
 
 		if (!account.isBlank()) {
 			Matcher hm = HANDLE_PATTERN.matcher(account);
@@ -1143,6 +1377,16 @@ public final class YtMusicManager {
 			}
 		} else if (config.ytMusicAccountName().isBlank()) {
 			config.setYtMusicAccountName("YT Music User");
+		}
+
+		if (!cookiesTxt.isBlank()) {
+			try {
+				Path binDir = spotifyManager.cacheDirectory().getParent().resolve(".bin");
+				Files.createDirectories(binDir);
+				Files.writeString(binDir.resolve("ytm_cookies.txt"), cookiesTxt + System.lineSeparator(), StandardCharsets.UTF_8);
+				addSavedPlaylistEntry(LIKED_MUSIC_ID);
+			} catch (IOException ignored) {
+			}
 		}
 
 		config.setYtMusicCookieBrowser(browser);

@@ -25,8 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced repetitive per-row `SPOT` / `YTM` pills on uncached tracks with a compact check indicator only on cached tracks, and separated the YouTube Music vs. Spotify buffering status labels on the bottom deck.
 
 ### Fixed
-- **YouTube Music `Liked Music` (`LM` / `LL`) Track Loading**:
-  - Resolved `Liked Music` (`LM`) failing with `The playlist does not exist` when redirected to `www.youtube.com` by routing `Liked Music` queries to `https://www.youtube.com/playlist?list=LL` and automatically probing installed browsers (`Firefox`, `Edge`, `Chrome`, `Brave`, `Opera`, `Vivaldi`) for an active authenticated session when no browser was pre-configured.
+- **YouTube Music `Liked Music` (`LM` / `LL`) & Large `800+` Track Playlist Streaming (Hotfix)**:
+  - Switched YouTube Music playlist track loading from buffered `--dump-single-json` to progressive line-by-line JSON streaming (`--flat-playlist -j` with `--extractor-args "youtubetab:skip=authcheck"` and `ProcessBuilder.Redirect.DISCARD` on `stderr`), preventing 4 KB `stderr` pipe buffer deadlocks on large playlists (`800+` songs) and streaming tracks into the UI in real time every 25 songs.
+  - Combined `music.youtube.com/playlist?list=LM` and `www.youtube.com/playlist?list=LL` for `Liked Music`, removed the 404-retrying `music.youtube.com/library/playlists` probe, and added `cookies.txt` support (`mp3s/cookies.txt` or direct paste in the `/ytmusic` portal) alongside `Firefox` / `Opera GX` auto-probing for Chromium browsers on Windows that lock cookies via DPAPI v20.
 
 ---
 

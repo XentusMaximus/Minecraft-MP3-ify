@@ -12,6 +12,7 @@ import de.vibecoded.mp3player.client.gui.Mp3PlayerScreen;
 import de.vibecoded.mp3player.client.gui.SoundOptionsInjector;
 import de.vibecoded.mp3player.client.library.Mp3LibraryManager;
 import de.vibecoded.mp3player.client.spotify.SpotifyManager;
+import de.vibecoded.mp3player.client.spotify.YtMusicManager;
 import de.vibecoded.mp3player.item.Mp3PlayerItem;
 import de.vibecoded.mp3player.item.SpeakerControllerItem;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
@@ -41,6 +42,7 @@ public class Mp3PlayerClient implements ClientModInitializer {
 	private static Mp3Config config;
 	private static Mp3LibraryManager libraryManager;
 	private static SpotifyManager spotifyManager;
+	private static YtMusicManager ytMusicManager;
 	private static Mp3AudioController audioController;
 	private static RemoteSpeakerManager remoteSpeakerManager;
 	private static KeyMapping openPlayerKey;
@@ -50,7 +52,8 @@ public class Mp3PlayerClient implements ClientModInitializer {
 		config = new Mp3Config();
 		libraryManager = new Mp3LibraryManager();
 		spotifyManager = new SpotifyManager(config, libraryManager);
-		audioController = new Mp3AudioController(config, libraryManager, spotifyManager);
+		ytMusicManager = new YtMusicManager(config, spotifyManager);
+		audioController = new Mp3AudioController(config, libraryManager, spotifyManager, ytMusicManager);
 		remoteSpeakerManager = new RemoteSpeakerManager(config);
 
 		// Inject native MP3 & Boombox volume slider into Minecraft's Music & Sounds Options (0 Mixins)
@@ -194,6 +197,7 @@ public class Mp3PlayerClient implements ClientModInitializer {
 			audioController.resetLinkedSpeakers();
 			remoteSpeakerManager.stopAll();
 			spotifyManager.stopCallbackServer();
+			ytMusicManager.stopPortalServer();
 			config.save();
 		});
 

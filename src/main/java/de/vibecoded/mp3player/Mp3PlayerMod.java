@@ -120,7 +120,7 @@ public class Mp3PlayerMod implements ModInitializer {
 
 		Mp3Payloads.registerPayloads();
 		SpeakerRelayServer.init();
-		LOGGER.info("MP3-Player, Boombox & Linked Speakers Mod v1.3.4 initialized for Minecraft 26.2!");
+		LOGGER.info("MP3-Player, Boombox & Linked Speakers Mod v1.3.5 initialized for Minecraft 26.2!");
 	}
 
 	public static Identifier id(String path) {

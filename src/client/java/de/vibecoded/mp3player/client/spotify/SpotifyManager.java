@@ -511,19 +511,35 @@ public final class SpotifyManager {
 		}
 	}
 
+	public static boolean isGermanLocale() {
+		try {
+			Minecraft mc = Minecraft.getInstance();
+			if (mc != null && mc.getLanguageManager() != null) {
+				String code = mc.getLanguageManager().getSelected();
+				return code != null && code.toLowerCase(Locale.ROOT).startsWith("de");
+			}
+		} catch (Exception ignored) {
+		}
+		return false;
+	}
+
 	private void handlePortalPage(HttpExchange exchange, Runnable onUiUpdate) throws IOException {
 		String savedClientId = escapeHtml(config.spotifyClientId());
 		String cbUrl = callbackUrl();
+		String defaultLang = isGermanLocale() ? "de" : "en";
 		String html = """
 				<!DOCTYPE html>
-				<html lang="de">
+				<html lang="%DEFAULT_LANG%">
 				<head>
 				<meta charset="UTF-8">
-				<title>Minecraft MP3-Player – Spotify verknüpfen</title>
+				<title>Minecraft MP3 Player – Link Spotify</title>
 				<style>
 				  body { background: #0b1120; color: #f8fafc; font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center; padding: 36px 16px; margin: 0; }
-				  .card { background: #111827; border: 1px solid #1db954; border-radius: 12px; max-width: 680px; width: 100%; padding: 28px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
-				  h1 { color: #1ed760; margin: 0 0 8px 0; font-size: 22px; }
+				  .card { background: #111827; border: 1px solid #1db954; border-radius: 12px; max-width: 680px; width: 100%; padding: 28px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); position: relative; }
+				  .lang-switch { position: absolute; top: 22px; right: 24px; display: flex; gap: 6px; }
+				  .lang-btn { background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; font-weight: 700; width: auto; }
+				  .lang-btn.active { background: #1db954; color: #052e16; border-color: #1ed760; }
+				  h1 { color: #1ed760; margin: 0 0 8px 0; font-size: 22px; padding-right: 90px; }
 				  h2 { color: #e2e8f0; font-size: 16px; margin: 24px 0 10px 0; border-bottom: 1px solid #1e293b; padding-bottom: 6px; }
 				  p, li { color: #cbd5e1; font-size: 13.5px; line-height: 1.6; }
 				  ol { padding-left: 20px; margin: 10px 0 16px 0; }
@@ -535,63 +551,129 @@ public final class SpotifyManager {
 				  .copy-btn { background: #1e293b; color: #38bdf8; border: 1px solid #334155; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; width: auto; font-weight: 600; }
 				  .copy-btn:hover { background: #334155; }
 				  input, textarea { width: 100%; box-sizing: border-box; background: #070b14; border: 1px solid #334155; color: #f8fafc; padding: 10px 12px; border-radius: 6px; margin-top: 6px; margin-bottom: 12px; font-size: 14px; }
-				  button { background: #1db954; color: #052e16; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; }
-				  button:hover { background: #1ed760; }
+				  button.primary { background: #1db954; color: #052e16; font-weight: 700; border: none; padding: 10px 18px; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; }
+				  button.primary:hover { background: #1ed760; }
 				  code { background: #070b14; color: #38bdf8; padding: 3px 8px; border-radius: 4px; user-select: all; font-family: ui-monospace, Consolas, monospace; border: 1px solid #1e293b; }
 				  a { color: #38bdf8; font-weight: 600; }
 				  b { color: #f8fafc; }
 				</style>
+				<script>
+				  function setLang(lang) {
+				    document.getElementById('view-en').style.display = (lang === 'en') ? 'block' : 'none';
+				    document.getElementById('view-de').style.display = (lang === 'de') ? 'block' : 'none';
+				    document.getElementById('btn-en').className = (lang === 'en') ? 'lang-btn active' : 'lang-btn';
+				    document.getElementById('btn-de').className = (lang === 'de') ? 'lang-btn active' : 'lang-btn';
+				  }
+				  window.onload = function() { setLang('%DEFAULT_LANG%'); };
+				</script>
 				</head>
 				<body>
 				<div class="card">
-				  <h1>Spotify-Account mit Minecraft verknüpfen</h1>
-				  <p>Wähle eine der beiden Methoden, um deinen Spotify-Account und deine kompletten Playlists (auch große Playlists mit 250+ Songs) in Minecraft freizuschalten:</p>
-
-				  <h2>Option 1: Schnell-Verknüpfung (Ohne Developer-App – Account & Playlist-Links)</h2>
-				  <p>Am schnellsten: Gib deinen Spotify-Namen (oder Profil-Link) und deine Playlist-Links ein. Öffentliche Playlists werden sofort vollständig mit allen Songs geladen.</p>
-				  <form action="/link" method="GET">
-				    <label><b>Dein Spotify-Accountname oder Profil-Link:</b></label>
-				    <input type="text" name="account" placeholder="z. B. DeinSpotifyName oder https://open.spotify.com/user/..." required />
-				    <label><b>Deine Spotify-Playlists (Links oder URIs, eine pro Zeile – auch später im Spiel erweiterbar):</b></label>
-				    <textarea name="playlists" rows="3" placeholder="https://open.spotify.com/playlist/..."></textarea>
-				    <button type="submit">Account & Playlists jetzt verknüpfen</button>
-				  </form>
-
-				  <h2>Option 2: Offizieller Spotify OAuth 2.0 Login (Alle eigenen Playlists, Private Listen & Lieblingssongs)</h2>
-				  <p>Mit einer kostenlosen eigenen Spotify Developer Application lädt der Mod automatisch dein Profil, deine <b>Lieblingssongs</b> und <b>alle deine eigenen/privaten Playlists</b> über die offizielle Spotify Web API. So richtest du die App in 1 Minute ein:</p>
-				  <ol>
-				    <li>Öffne das <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> und melde dich mit deinem normalen Spotify-Account an.</li>
-				    <li>Klicke oben rechts auf den blauen Button <b>„Create app"</b>.</li>
-				    <li>Fülle das Formular wie folgt aus:
-				      <ul class="sublist">
-				        <li><b>App name:</b> z. B. <code>Minecraft MP3 Player</code> (frei wählbar)</li>
-				        <li><b>App description:</b> z. B. <code>Minecraft Ingame Music Integration</code> (frei wählbar)</li>
-				        <li><b>Website:</b> kann leer bleiben</li>
-				        <li><b>Redirect URIs:</b> Kopiere exakt diese Adresse hinein und klicke rechts daneben unbedingt auf <b>„Add"</b>:
-				          <div class="copy-row">
-				            <code id="cbUri">%CALLBACK%</code>
-				            <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('cbUri').innerText); this.innerText='Kopiert!';">Kopieren</button>
-				          </div>
-				        </li>
-				        <li><b>Which API/SDKs are you planning to use?:</b> Setze den Haken bei <b>„Web API"</b>.</li>
-				      </ul>
-				    </li>
-				    <li>Setze unten den Haken bei den Nutzungsbedingungen (<i>Developer Terms of Service</i>) und klicke auf <b>„Save"</b>.</li>
-				    <li>Du landest nun in deiner neuen App: Klicke oben rechts auf <b>„Settings"</b> (oder <b>„Basic Information"</b>).</li>
-				    <li>Dort siehst du direkt deine 32-stellige <b>Client ID</b> (z. B. <code>a1b2c3d4e5...</code>). Kopiere diese <b>Client ID</b> in das Feld unten (das <i>Client Secret</i> wird dank PKCE-Verschlüsselung <b>nicht</b> benötigt!).</li>
-				  </ol>
-				  <div class="hint-box">
-				    <b>Wichtig bei „INVALID_CLIENT: Invalid redirect URI":</b> Prüfe in den App-Settings unter <i>Redirect URIs</i>, dass <code>%CALLBACK%</code> exakt eingetragen ist, du auf <b>Add</b> und ganz unten auf <b>Save</b> geklickt hast.
+				  <div class="lang-switch">
+				    <button type="button" id="btn-en" class="lang-btn" onclick="setLang('en')">EN</button>
+				    <button type="button" id="btn-de" class="lang-btn" onclick="setLang('de')">DE</button>
 				  </div>
-				  <form action="/oauth" method="GET">
-				    <label><b>Deine 32-stellige Spotify Client ID aus dem Dashboard:</b></label>
-				    <input type="text" name="client_id" value="%CLIENT_ID%" placeholder="z. B. 4f8a9c12e7b04d319a8b7c6d5e4f3a2b" required />
-				    <button type="submit">Weiter zum offiziellen Spotify OAuth Login</button>
-				  </form>
+
+				  <!-- ENGLISH VIEW -->
+				  <div id="view-en">
+				    <h1>Link Spotify Account with Minecraft</h1>
+				    <p>Choose one of the two methods below to unlock your Spotify account and complete playlists (including 250+ song playlists) inside Minecraft:</p>
+
+				    <h2>Option 1: Quick Link (No Developer App Required – Account & Playlist Links)</h2>
+				    <p>Fastest setup: Enter your Spotify username (or profile URL) and paste your playlist links. Public playlists load all tracks automatically.</p>
+				    <form action="/link" method="GET">
+				      <label><b>Your Spotify Account Name or Profile URL:</b></label>
+				      <input type="text" name="account" placeholder="e.g. YourSpotifyName or https://open.spotify.com/user/..." required />
+				      <label><b>Your Spotify Playlists (URLs or URIs, one per line – you can also add more in-game anytime):</b></label>
+				      <textarea name="playlists" rows="3" placeholder="https://open.spotify.com/playlist/..."></textarea>
+				      <button type="submit" class="primary">Link Account & Playlists Now</button>
+				    </form>
+
+				    <h2>Option 2: Official Spotify OAuth 2.0 Login (All Personal/Private Playlists & Liked Songs)</h2>
+				    <p>With a free personal Spotify Developer Application, the mod automatically loads your profile, <b>Liked Songs</b>, and <b>all your personal/private playlists</b> via the official Spotify Web API. Setup takes 1 minute:</p>
+				    <ol>
+				      <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> and sign in with your normal Spotify account.</li>
+				      <li>Click the blue <b>"Create app"</b> button in the top right corner.</li>
+				      <li>Fill in the form as follows:
+				        <ul class="sublist">
+				          <li><b>App name:</b> e.g. <code>Minecraft MP3 Player</code> (any name works)</li>
+				          <li><b>App description:</b> e.g. <code>Minecraft Ingame Music Integration</code> (any text works)</li>
+				          <li><b>Website:</b> leave empty</li>
+				          <li><b>Redirect URIs:</b> Paste this exact address and make sure to click <b>"Add"</b> next to it:
+				            <div class="copy-row">
+				              <code id="cbUriEn">%CALLBACK%</code>
+				              <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('cbUriEn').innerText); this.innerText='Copied!';">Copy</button>
+				            </div>
+				          </li>
+				          <li><b>Which API/SDKs are you planning to use?:</b> Check the box for <b>"Web API"</b>.</li>
+				        </ul>
+				      </li>
+				      <li>Check the <i>Developer Terms of Service</i> box at the bottom and click <b>"Save"</b>.</li>
+				      <li>On your new app's overview page, click <b>"Settings"</b> (or <b>"Basic Information"</b>) in the top right corner.</li>
+				      <li>Copy your 32-character <b>Client ID</b> (e.g. <code>a1b2c3d4e5...</code>) and paste it below (the <i>Client Secret</i> is <b>not</b> required thanks to PKCE!).</li>
+				    </ol>
+				    <div class="hint-box">
+				      <b>Important if you see "INVALID_CLIENT: Invalid redirect URI":</b> Double-check in your App Settings under <i>Redirect URIs</i> that <code>%CALLBACK%</code> was added with <b>Add</b> and saved with <b>Save</b> at the bottom.
+				    </div>
+				    <form action="/oauth" method="GET">
+				      <label><b>Your 32-character Spotify Client ID from the Dashboard:</b></label>
+				      <input type="text" name="client_id" value="%CLIENT_ID%" placeholder="e.g. 4f8a9c12e7b04d319a8b7c6d5e4f3a2b" required />
+				      <button type="submit" class="primary">Continue to Official Spotify OAuth Login</button>
+				    </form>
+				  </div>
+
+				  <!-- GERMAN VIEW -->
+				  <div id="view-de" style="display:none;">
+				    <h1>Spotify-Account mit Minecraft verknüpfen</h1>
+				    <p>Wähle eine der beiden Methoden, um deinen Spotify-Account und deine kompletten Playlists (auch große Playlists mit 250+ Songs) in Minecraft freizuschalten:</p>
+
+				    <h2>Option 1: Schnell-Verknüpfung (Ohne Developer-App – Account & Playlist-Links)</h2>
+				    <p>Am schnellsten: Gib deinen Spotify-Namen (oder Profil-Link) und deine Playlist-Links ein. Öffentliche Playlists werden sofort vollständig mit allen Songs geladen.</p>
+				    <form action="/link" method="GET">
+				      <label><b>Dein Spotify-Accountname oder Profil-Link:</b></label>
+				      <input type="text" name="account" placeholder="z. B. DeinSpotifyName oder https://open.spotify.com/user/..." required />
+				      <label><b>Deine Spotify-Playlists (Links oder URIs, eine pro Zeile – auch später im Spiel erweiterbar):</b></label>
+				      <textarea name="playlists" rows="3" placeholder="https://open.spotify.com/playlist/..."></textarea>
+				      <button type="submit" class="primary">Account & Playlists jetzt verknüpfen</button>
+				    </form>
+
+				    <h2>Option 2: Offizieller Spotify OAuth 2.0 Login (Alle eigenen Playlists, Private Listen & Lieblingssongs)</h2>
+				    <p>Mit einer kostenlosen eigenen Spotify Developer Application lädt der Mod automatisch dein Profil, deine <b>Lieblingssongs</b> und <b>alle deine eigenen/privaten Playlists</b> über die offizielle Spotify Web API. So richtest du die App in 1 Minute ein:</p>
+				    <ol>
+				      <li>Öffne das <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify Developer Dashboard</a> und melde dich mit deinem normalen Spotify-Account an.</li>
+				      <li>Klicke oben rechts auf den blauen Button <b>„Create app"</b>.</li>
+				      <li>Fülle das Formular wie folgt aus:
+				        <ul class="sublist">
+				          <li><b>App name:</b> z. B. <code>Minecraft MP3 Player</code> (frei wählbar)</li>
+				          <li><b>App description:</b> z. B. <code>Minecraft Ingame Music Integration</code> (frei wählbar)</li>
+				          <li><b>Website:</b> kann leer bleiben</li>
+				          <li><b>Redirect URIs:</b> Kopiere exakt diese Adresse hinein und klicke rechts daneben unbedingt auf <b>„Add"</b>:
+				            <div class="copy-row">
+				              <code id="cbUriDe">%CALLBACK%</code>
+				              <button type="button" class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('cbUriDe').innerText); this.innerText='Kopiert!';">Kopieren</button>
+				            </div>
+				          </li>
+				          <li><b>Which API/SDKs are you planning to use?:</b> Setze den Haken bei <b>„Web API"</b>.</li>
+				        </ul>
+				      </li>
+				      <li>Setze unten den Haken bei den Nutzungsbedingungen (<i>Developer Terms of Service</i>) und klicke auf <b>„Save"</b>.</li>
+				      <li>Du landest nun in deiner neuen App: Klicke oben rechts auf <b>„Settings"</b> (oder <b>„Basic Information"</b>).</li>
+				      <li>Dort siehst du direkt deine 32-stellige <b>Client ID</b> (z. B. <code>a1b2c3d4e5...</code>). Kopiere diese <b>Client ID</b> in das Feld unten (das <i>Client Secret</i> wird dank PKCE-Verschlüsselung <b>nicht</b> benötigt!).</li>
+				    </ol>
+				    <div class="hint-box">
+				      <b>Wichtig bei „INVALID_CLIENT: Invalid redirect URI":</b> Prüfe in den App-Settings unter <i>Redirect URIs</i>, dass <code>%CALLBACK%</code> exakt eingetragen ist, du auf <b>Add</b> und ganz unten auf <b>Save</b> geklickt hast.
+				    </div>
+				    <form action="/oauth" method="GET">
+				      <label><b>Deine 32-stellige Spotify Client ID aus dem Dashboard:</b></label>
+				      <input type="text" name="client_id" value="%CLIENT_ID%" placeholder="z. B. 4f8a9c12e7b04d319a8b7c6d5e4f3a2b" required />
+				      <button type="submit" class="primary">Weiter zum offiziellen Spotify OAuth Login</button>
+				    </form>
+				  </div>
 				</div>
 				</body>
 				</html>
 				"""
+				.replace("%DEFAULT_LANG%", defaultLang)
 				.replace("%CALLBACK%", cbUrl)
 				.replace("%CLIENT_ID%", savedClientId);
 
@@ -802,7 +884,7 @@ public final class SpotifyManager {
 							loaded.put(LIKED_SONGS_ID, new SpotifyPlaylist(
 									LIKED_SONGS_ID,
 									"playlist",
-									"Lieblingssongs",
+									isGermanLocale() ? "Lieblingssongs" : "Liked Songs",
 									config.spotifyAccountName(),
 									totalLiked,
 									true
@@ -844,6 +926,45 @@ public final class SpotifyManager {
 							}
 						}
 						nextPlUrl = getJsonString(plResp, "next");
+					}
+
+					// Also load saved third-party albums from the user's Spotify Library (/v1/me/albums)
+					String nextAlbUrl = "https://api.spotify.com/v1/me/albums?limit=50";
+					int albPages = 0;
+					while (nextAlbUrl != null && albPages++ < 5) {
+						JsonObject albResp = sendSpotifyApiGet(nextAlbUrl);
+						if (albResp == null || !albResp.has("items") || !albResp.get("items").isJsonArray()) {
+							break;
+						}
+						JsonArray items = albResp.getAsJsonArray("items");
+						for (JsonElement el : items) {
+							if (!el.isJsonObject()) {
+								continue;
+							}
+							JsonObject wrapper = el.getAsJsonObject();
+							JsonObject albObj = wrapper.has("album") && wrapper.get("album").isJsonObject()
+									? wrapper.getAsJsonObject("album")
+									: wrapper;
+							String id = getJsonString(albObj, "id");
+							String name = getJsonString(albObj, "name");
+							String artistName = "Spotify";
+							if (albObj.has("artists") && albObj.get("artists").isJsonArray()) {
+								JsonArray aArr = albObj.getAsJsonArray("artists");
+								if (!aArr.isEmpty() && aArr.get(0).isJsonObject()) {
+									String an = getJsonString(aArr.get(0).getAsJsonObject(), "name");
+									if (an != null && !an.isBlank()) {
+										artistName = an;
+									}
+								}
+							}
+							int total = albObj.has("total_tracks") && !albObj.get("total_tracks").isJsonNull()
+									? albObj.get("total_tracks").getAsInt()
+									: 0;
+							if (id != null && name != null && !loaded.containsKey(id)) {
+								loaded.put(id, new SpotifyPlaylist(id, "album", name, artistName, total, false));
+							}
+						}
+						nextAlbUrl = getJsonString(albResp, "next");
 					}
 				}
 
@@ -1332,7 +1453,10 @@ public final class SpotifyManager {
 		}
 
 		downloadingTrackIds.add(track.id());
-		setStatusMessage("Lade Spotify-Song: " + track.fullDisplayLabel() + " ...", 25_000L);
+		setStatusMessage(
+				(isGermanLocale() ? "Lade Spotify-Song: " : "Buffering Spotify track: ") + track.fullDisplayLabel() + " ...",
+				25_000L
+		);
 
 		CompletableFuture<Mp3TrackInfo> future = activeDownloads.computeIfAbsent(
 				track.id(),
@@ -1344,12 +1468,14 @@ public final class SpotifyManager {
 			activeDownloads.remove(track.id());
 			Minecraft mc = Minecraft.getInstance();
 			if (info != null && err == null) {
-				setStatusMessage("Bereit: " + track.displayTitle(), 2500L);
+				setStatusMessage((isGermanLocale() ? "Bereit: " : "Ready: ") + track.displayTitle(), 2500L);
 				if (onReadyClientThread != null && mc != null) {
 					mc.execute(() -> onReadyClientThread.accept(info));
 				}
 			} else {
-				String msg = "Spotify-Stream konnte nicht geladen werden: " + track.displayTitle();
+				String msg = (isGermanLocale()
+						? "Spotify-Stream konnte nicht geladen werden: "
+						: "Failed to load Spotify stream: ") + track.displayTitle();
 				setStatusMessage(msg, 4500L);
 				if (onErrorClientThread != null && mc != null) {
 					mc.execute(() -> onErrorClientThread.accept(msg));
@@ -1635,7 +1761,11 @@ public final class SpotifyManager {
 		return null;
 	}
 
-	private synchronized Path findOrProvisionYtDlp() {
+	public Path cacheDirectory() {
+		return spotifyCacheDir;
+	}
+
+	public synchronized Path findOrProvisionYtDlp() {
 		if (cachedYtDlpBinary != null && Files.isRegularFile(cachedYtDlpBinary)) {
 			ensureYtDlpUpdatedOnce(cachedYtDlpBinary);
 			return cachedYtDlpBinary;
@@ -1896,7 +2026,7 @@ public final class SpotifyManager {
 		}
 	}
 
-	private Path findFfmpegDirectory() {
+	public Path findFfmpegDirectory() {
 		if (cachedFfmpegDir != null && Files.isDirectory(cachedFfmpegDir)) {
 			return cachedFfmpegDir;
 		}
@@ -2045,22 +2175,32 @@ public final class SpotifyManager {
 	}
 
 	private static String buildSuccessHtml(String accountName) {
+		boolean de = isGermanLocale();
+		String title = de ? "Spotify erfolgreich verknüpft!" : "Spotify Successfully Linked!";
+		String connectedAs = de ? "Verbunden als:" : "Connected as:";
+		String closeHint = de
+				? "Du kannst dieses Browser-Fenster jetzt schließen und zu Minecraft zurückkehren."
+				: "You can now close this browser tab and return to Minecraft.";
 		return """
 				<!DOCTYPE html>
-				<html lang="de">
-				<head><meta charset="UTF-8"><title>Spotify verknüpft!</title>
+				<html>
+				<head><meta charset="UTF-8"><title>%TITLE%</title>
 				<style>
 				  body { background: #0b1120; color: #f8fafc; font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 90vh; margin: 0; }
 				  .box { background: #111827; border: 1px solid #1db954; border-radius: 12px; padding: 32px; text-align: center; max-width: 440px; }
-				  h1 { color: #1ed760; margin-top: 0; }
+				  h1 { color: #1ed760; margin-top: 0; font-size: 22px; }
 				  p { color: #cbd5e1; }
 				</style></head>
 				<body><div class="box">
-				  <h1>✔ Spotify erfolgreich verknüpft!</h1>
-				  <p>Verbunden als: <b>%ACCOUNT%</b></p>
-				  <p>Du kannst dieses Browser-Fenster jetzt schließen und zu Minecraft zurückkehren.</p>
+				  <h1>✔ %TITLE%</h1>
+				  <p>%CONNECTED_AS% <b>%ACCOUNT%</b></p>
+				  <p>%CLOSE_HINT%</p>
 				</div></body></html>
-				""".replace("%ACCOUNT%", escapeHtml(accountName));
+				"""
+				.replace("%TITLE%", title)
+				.replace("%CONNECTED_AS%", connectedAs)
+				.replace("%CLOSE_HINT%", closeHint)
+				.replace("%ACCOUNT%", escapeHtml(accountName));
 	}
 
 	private static void sendHtmlResponse(HttpExchange exchange, int status, String html) throws IOException {

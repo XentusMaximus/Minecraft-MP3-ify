@@ -69,6 +69,11 @@ public final class Mp3Config {
 	private String spotifyAccountName = "";
 	private final List<String> spotifySavedPlaylists = new ArrayList<>();
 
+	// YouTube Music Account Link & Playlist Configuration
+	private String ytMusicAccountName = "";
+	private String ytMusicCookieBrowser = "";
+	private final List<String> ytMusicSavedPlaylists = new ArrayList<>();
+
 	public Mp3Config() {
 		this.configFile = FabricLoader.getInstance().getConfigDir().resolve("mp3player.properties");
 		load();
@@ -219,6 +224,47 @@ public final class Mp3Config {
 		this.spotifySavedPlaylists.clear();
 	}
 
+	public String ytMusicAccountName() {
+		return ytMusicAccountName;
+	}
+
+	public void setYtMusicAccountName(String ytMusicAccountName) {
+		this.ytMusicAccountName = ytMusicAccountName != null ? ytMusicAccountName.trim() : "";
+	}
+
+	public String ytMusicCookieBrowser() {
+		return ytMusicCookieBrowser;
+	}
+
+	public void setYtMusicCookieBrowser(String ytMusicCookieBrowser) {
+		this.ytMusicCookieBrowser = ytMusicCookieBrowser != null ? ytMusicCookieBrowser.trim() : "";
+	}
+
+	public boolean isYtMusicLinked() {
+		return !ytMusicAccountName.isBlank() || !ytMusicCookieBrowser.isBlank() || !ytMusicSavedPlaylists.isEmpty();
+	}
+
+	public List<String> ytMusicSavedPlaylists() {
+		return Collections.unmodifiableList(ytMusicSavedPlaylists);
+	}
+
+	public void setYtMusicSavedPlaylists(List<String> playlists) {
+		ytMusicSavedPlaylists.clear();
+		if (playlists != null) {
+			for (String id : playlists) {
+				if (id != null && !id.isBlank() && !ytMusicSavedPlaylists.contains(id.trim())) {
+					ytMusicSavedPlaylists.add(id.trim());
+				}
+			}
+		}
+	}
+
+	public void clearYtMusicAccount() {
+		this.ytMusicAccountName = "";
+		this.ytMusicCookieBrowser = "";
+		this.ytMusicSavedPlaylists.clear();
+	}
+
 	public void load() {
 		if (!Files.isRegularFile(configFile)) {
 			save();
@@ -257,6 +303,18 @@ public final class Mp3Config {
 					}
 				}
 			}
+			this.ytMusicAccountName = props.getProperty("ytMusicAccountName", "").trim();
+			this.ytMusicCookieBrowser = props.getProperty("ytMusicCookieBrowser", "").trim();
+			this.ytMusicSavedPlaylists.clear();
+			String rawYtmPlaylists = props.getProperty("ytMusicSavedPlaylists", "").trim();
+			if (!rawYtmPlaylists.isEmpty()) {
+				for (String p : rawYtmPlaylists.split(";")) {
+					String trimmed = p.trim();
+					if (!trimmed.isEmpty() && !ytMusicSavedPlaylists.contains(trimmed)) {
+						ytMusicSavedPlaylists.add(trimmed);
+					}
+				}
+			}
 			// Linked speakers are strictly per-session and reset on server join/leave
 			this.linkedSpeakers.clear();
 		} catch (Exception e) {
@@ -279,6 +337,9 @@ public final class Mp3Config {
 		props.setProperty("spotifyTokenExpiresAt", Long.toString(spotifyTokenExpiresAt));
 		props.setProperty("spotifyAccountName", spotifyAccountName != null ? spotifyAccountName : "");
 		props.setProperty("spotifySavedPlaylists", String.join(";", spotifySavedPlaylists));
+		props.setProperty("ytMusicAccountName", ytMusicAccountName != null ? ytMusicAccountName : "");
+		props.setProperty("ytMusicCookieBrowser", ytMusicCookieBrowser != null ? ytMusicCookieBrowser : "");
+		props.setProperty("ytMusicSavedPlaylists", String.join(";", ytMusicSavedPlaylists));
 
 		try {
 			Files.createDirectories(configFile.getParent());

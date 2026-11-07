@@ -1,6 +1,6 @@
-# MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.4`)
+# MP3-Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.5`)
 
-![Version 1.3.4](https://img.shields.io/badge/Version-1.3.4-a855f7?style=flat-square)
+![Version 1.3.5](https://img.shields.io/badge/Version-1.3.5-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -8,15 +8,18 @@
 
 [English](README.md) | **Deutsch** | [Changelog](CHANGELOG.md)
 
-Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für **Minecraft 26.2 (Fabric)** — spiele deine eigenen lokalen **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`** und **`.ogg`** Dateien über den tragbaren **MP3-Player** ab oder stelle eine **Boombox** in die Welt, die echten 3D-Raumklang von ihrer Block-Position aus abstrahlt — inklusive eigenem Lautstärke-Regler direkt in den **Minecraft-Musik-&-Geräusche-Optionen**!
+Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für **Minecraft 26.2 (Fabric)** — spiele deine eigenen lokalen **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`** und **`.ogg`** Dateien oder streame deine **YouTube Music (`YTM`)** und **Spotify (`Spot`)** Playlists über den tragbaren **MP3-Player**, eine stationäre **3D-Boombox** oder **verlinkbare 3D-Lautsprecher-Netzwerke** — inklusive eigenem Lautstärke-Regler direkt in den **Minecraft-Musik-&-Geräusche-Optionen**!
 
 ---
 
 ## Features
 
-- **Spotify-Account-Verknüpfung & Playlist-Wiedergabe (`v1.3.4`):**
-  - **Verpflichtende Spotify-Account-Verknüpfung (`Spot`-Tab):** Vor dem Laden und Abspielen von Spotify-Playlists muss der eigene Spotify-Account verknüpft werden — entweder über das integrierte lokale Browser-Login-Portal (`http://127.0.0.1:8888/spotify` inkl. ausführlicher Schritt-für-Schritt-Anleitung) oder direkt im Ingame-GUI per Client-ID, Profil-URL oder Token.
-  - **Vollständiges Laden großer Playlists (Kein 100-Song-Limit, Rate-Limit-frei):** Lädt komplette Spotify-Playlists beliebiger Größe (z. B. `250+` bis `5.000` Songs) ohne Rate-Limits über automatische Seiten-Pagination (Spotify Web API & Partner Pathfinder GraphQL `fetchPlaylistContents`).
+- **YouTube Music Integration (`YTM`-Tab, Neu in `v1.3.5`):**
+  - **YouTube Music Account- & Mediathek-Verknüpfung (`http://127.0.0.1:8889/ytmusic`):** Zweisprachiges Browser-Portal (Deutsch & Englisch) sowie direkte Ingame-Verknüpfung per YouTube `@Handle` / Kanal-Link, Playlist-Links (`music.youtube.com/playlist?list=...`, `browse/VL...`, `browse/MPREb_...`, `OLAK5uy_...`) oder optionalem Browser-Session-Sync (`Firefox`, `Edge`, `Chrome`, `Brave`, `Opera`, `Vivaldi`) zum automatischen Importieren aller in deiner Mediathek gespeicherten Playlists (auch von anderen Erstellern) sowie deiner **„Mag ich"-Songs (`LM`)**.
+  - **Vollständige Playlists & Live-Suche im Spiel (`+ / Suche`):** Lädt komplette YouTube Music Playlists ohne 100-Song-Limit und erlaubt die direkte Live-Suche nach jedem beliebigen Song oder Künstler über die obere Leiste, mit 1:1 Video-ID-Auflösung für Kopfhörer, 3D-Boombox und Lautsprecher-Netzwerke (`[+]`-Queue).
+- **Spotify-Account-Verknüpfung & Playlist-Wiedergabe (`Spot`-Tab, `v1.3.4` / `v1.3.5`):**
+  - **Verpflichtende Spotify-Account-Verknüpfung (`Spot`-Tab):** Vor dem Laden und Abspielen von Spotify-Playlists muss der eigene Spotify-Account verknüpft werden — entweder über das zweisprachige lokale Browser-Login-Portal (`http://127.0.0.1:8888/spotify` inkl. ausführlicher Schritt-für-Schritt-Anleitung) oder direkt im Ingame-GUI per Client-ID, Profil-URL oder Token.
+  - **Eigene & gespeicherte fremde Playlists + Alben (Kein 100-Song-Limit, Rate-Limit-frei):** Lädt automatisch deine eigenen Playlists, in deiner Bibliothek gespeicherte Playlists anderer Nutzer (`/v1/me/playlists`) sowie gespeicherte Alben (`/v1/me/albums`) und ruft komplette Playlists beliebiger Größe (`250+` bis `5.000` Songs) ohne Rate-Limits über automatische Seiten-Pagination (Spotify Web API & Partner Pathfinder GraphQL `fetchPlaylistContents`) ab.
   - **Exaktes Studio-Audio-Matching & Caching:** Sucht gezielt nach den offiziellen YouTube-Topic- / Studio-Uploads passend zur exakten Spotify-Songdauer (`±8 Sek.` Toleranz) und filtert inoffizielle `Slowed`-, `Sped Up`-, `Nightcore`- oder `Remix`-Uploads automatisch heraus. Gecachte Tracks (`mp3s/.spotify-cache/`) laufen nahtlos über **Kopfhörer**, die **3D-Boombox** und **verlinkte Lautsprecher-Netzwerke** (inkl. `[+]`-**Warteschlange**).
 - **Verlinkbare 3D-Lautsprecher (`mp3player:speaker`) & Lautsprecher-Controller (`mp3player:speaker_controller`):**
   - **Volle 16×16×16 Lautsprecher-Blöcke ohne Partikel & ohne Limit (`Integer.MAX_VALUE`):** Platzierbare, direktionale Studio-Lautsprecher als volle Blöcke, die während der Wiedergabe **keine Partikel** erzeugen und ohne Begrenzung (`2.147.483.647`) verknüpft werden können.
@@ -55,16 +58,17 @@ Ein moderner **Ingame-Multiformat-Musikplayer & platzierbare 3D-Boombox** für *
 - **Java:** `25+`
 
 ### Einrichtung
-1. Lege die gebaute `mp3player-1.3.4.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
-   > **Hinweis für Essential World Hosting & Server:** Für den **3D-Lautsprecher**, die **Boombox** und **verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.4.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
+1. Lege die gebaute `mp3player-1.3.5.jar` zusammen mit der **Fabric API (`26.2`)** in den `mods`-Ordner deiner Minecraft-Instanz (z. B. in der Modrinth App).
+   > **Hinweis für Essential World Hosting & Server:** Für den **3D-Lautsprecher**, die **Boombox** und **verlinkte Lautsprecher** müssen alle Mitspieler (bzw. der Fabric-Server) `mp3player-1.3.5.jar` installiert haben. Deine Freunde benötigen deine Musikdateien **nicht** auf ihrem PC — die Musik wird live in Echtzeit als Opus-Stream übertragen!
 2. **Eigene Audiodateien hinzufügen (3 Möglichkeiten):**
    - **Ingame-Button:** MP3-Player oder Boombox öffnen → Klick auf **„Ordner"** *(öffnet automatisch `<minecraft-instanz>/mp3s/` im Explorer)*.
    - **Drag & Drop:** Ziehe `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac` oder `.ogg` Dateien (oder ganze Musikordner) aus Windows direkt in das geöffnete Player-GUI in Minecraft.
    - **Manuell:** Kopiere deine Audiodateien in den Ordner `<minecraft-instanz>/mp3s/` *(Unterordner werden ebenfalls automatisch erkannt)*.
-3. **Spotify-Account verknüpfen (`Spot`-Tab — 2 Möglichkeiten):**
-   - Öffne das MP3-Player- oder Lautsprecher-Controller-GUI im Spiel, klicke oben im Header auf **`Spot`** und anschließend auf **`Web`**, um das lokale Verknüpfungsportal (`http://127.0.0.1:8888/spotify`) im Browser zu öffnen:
-     - **Option 1 — Schnell-Verknüpfung (Ohne Developer-App):** Gib deinen Spotify-Accountnamen (oder Profil-Link) sowie deine Spotify-Playlist-Links ein. Weitere Playlists können jederzeit auch direkt im Spiel über das Eingabefeld (`+ Playlist`) hinzugefügt werden.
-     - **Option 2 — Offizieller Spotify OAuth 2.0 PKCE Login (Alle eigenen/privaten Playlists & Lieblingssongs):**
+3. **YouTube Music (`YTM`-Tab) oder Spotify (`Spot`-Tab) verknüpfen:**
+   - **YouTube Music (`YTM`-Tab):** Klicke oben im Header auf **`YTM`** und auf **`Web`** (`http://127.0.0.1:8889/ytmusic`, auf Deutsch & Englisch verfügbar), um deinen `@Handle` / Kanal, Playlist- oder Album-Links (`music.youtube.com/playlist?list=...`, `browse/VL...`, `browse/MPREb_...`) oder optional den Browser-Session-Sync (lädt automatisch alle in deiner Mediathek gespeicherten Playlists sowie **„Mag ich"-Songs `LM`**) zu verknüpfen. Im Spiel kannst du über das Feld oben (`+ / Suche`) zudem direkt live auf YouTube Music nach Songs und Künstlern suchen!
+   - **Spotify (`Spot`-Tab — 2 Möglichkeiten):** Öffne den `Spot`-Tab und klicke auf **`Web`** (`http://127.0.0.1:8888/spotify`, auf Deutsch & Englisch verfügbar):
+     - **Option 1 — Schnell-Verknüpfung (Ohne Developer-App):** Gib deinen Spotify-Accountnamen (oder Profil-Link) sowie deine Spotify-Playlist-/Album-Links ein. Weitere Playlists können jederzeit auch direkt im Spiel über das Eingabefeld (`+ Playlist`) hinzugefügt werden.
+     - **Option 2 — Offizieller Spotify OAuth 2.0 PKCE Login (Alle eigenen/privaten/gespeicherten Playlists, gespeicherte Alben & Lieblingssongs):**
        1. Melde dich im [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) an und klicke oben rechts auf **Create app**.
        2. Vergib einen beliebigen **App name** (z. B. `Minecraft MP3 Player`) und eine **App description**.
        3. Trage unter **Redirect URIs** exakt `http://127.0.0.1:8888/callback` ein und klicke daneben auf **Add**.
@@ -158,9 +162,9 @@ src/
         │   └── decoder/                 # Streaming-PCM + Seek-Decoder (MP3, M4A, OPUS, WAV, FLAC, OGG)
         ├── config/Mp3Config.java        # Persistente Spieler- & Sound-Optionen-Einstellungen
         ├── debug/                       # Client-seitiger Timeout-Simulator (/mp3timeout)
-        ├── gui/                         # Mp3PlayerScreen (Songs-, Lautsprecher-, Queue- & Spotify-Tab) & SoundOptionsInjector
+        ├── gui/                         # Mp3PlayerScreen (Songs-, Lautsprecher-, Queue-, Spotify- & YT-Music-Tab) & SoundOptionsInjector
         ├── library/Mp3LibraryManager.java
-        └── spotify/SpotifyManager.java  # Spotify OAuth 2.0 PKCE Portal, Voll-Pagination & Studio-Audio-Resolver
+        └── spotify/                     # SpotifyManager & YtMusicManager (Zweisprachige Portale, Voll-Pagination & Audio-Resolver)
 ```
 
 ### Selbst kompilieren
@@ -170,7 +174,7 @@ Vorausgesetzt wird ein installiertes **JDK 25**:
 .\gradlew.bat build
 ```
 
-Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.3.4.jar`.
+Die fertige Mod-JAR liegt anschließend unter `build/libs/mp3player-1.3.5.jar`.
 
 ---
 

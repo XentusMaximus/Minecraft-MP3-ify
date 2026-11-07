@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.5] - 2026-11-07
+
+### Added
+- **YouTube Music Integration (`ViewTab.YTMUSIC` / `YTM` Tab)**:
+  - Added a dedicated `YTM` tab in the MP3 Player, Boombox, and Speaker Controller GUI with account linking via the local browser portal (`http://127.0.0.1:8889/ytmusic`) or direct in-game input (`@Handle`, channel URL, playlist URL, or `browser:<name>`).
+  - Full playlist loading without 100-song limits (`--flat-playlist --dump-single-json`), live in-game YouTube Music search (`+ / Search`), and 1:1 exact video ID audio resolution (`ytm_<id>.m4a/.mp3`) across Headphones, 3D Boomboxes, and Linked Speaker Networks (`+` Queue).
+- **Saved Third-Party Playlists & Albums Import (YouTube Music & Spotify)**:
+  - Automatically discovers playlists created by other users that were saved to the user's YouTube / YouTube Music library (`youtube.com/feed/playlists`, `music.youtube.com/library/playlists`, and `@Handle/playlists`) as well as YouTube Music library browse links (`music.youtube.com/browse/VL...`, `browse/MPREb_...`, `OLAK5uy_...`).
+  - Added automatic loading of saved third-party albums from the user's Spotify library (`/v1/me/albums`) alongside saved playlists (`/v1/me/playlists`).
+- **Bilingual Browser Linking Portals (`EN | DE`)**:
+  - Both the Spotify (`/spotify`) and YouTube Music (`/ytmusic`) browser portals and confirmation pages now automatically detect Minecraft's active language (English or German) and provide a live `EN | DE` language toggle button in the top right corner.
+
+### Changed
+- **Expanded GUI Scaling & De-Cluttered Track Rows**:
+  - Increased maximum player window dimensions from `368x278` to `448x310` with `24px` row height and inner scissor padding so header playlist titles and two-line track entries have ample breathing room.
+  - Replaced repetitive per-row `SPOT` / `YTM` pills on uncached tracks with a compact check indicator only on cached tracks, and separated the YouTube Music vs. Spotify buffering status labels on the bottom deck.
+
+### Fixed
+- **YouTube Music `Liked Music` (`LM` / `LL`) Track Loading**:
+  - Resolved `Liked Music` (`LM`) failing with `The playlist does not exist` when redirected to `www.youtube.com` by routing `Liked Music` queries to `https://www.youtube.com/playlist?list=LL` and automatically probing installed browsers (`Firefox`, `Edge`, `Chrome`, `Brave`, `Opera`, `Vivaldi`) for an active authenticated session when no browser was pre-configured.
+
+---
+
 ## [1.3.4] - 2026-11-06
 
 ### Added

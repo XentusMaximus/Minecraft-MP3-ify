@@ -1,6 +1,6 @@
-# MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.4`)
+# MP3 Player & Boombox (`Minecraft 26.2` · Fabric · `v1.3.5`)
 
-![Version 1.3.4](https://img.shields.io/badge/Version-1.3.4-a855f7?style=flat-square)
+![Version 1.3.5](https://img.shields.io/badge/Version-1.3.5-a855f7?style=flat-square)
 ![Minecraft 26.2](https://img.shields.io/badge/Minecraft-26.2-2ea44f?style=flat-square)
 ![Mod Loader](https://img.shields.io/badge/Loader-Fabric%20%E2%89%A50.20.1-dbd0b4?style=flat-square)
 ![Java 25](https://img.shields.io/badge/Java-25%2B-ed8b00?style=flat-square)
@@ -8,15 +8,18 @@
 
 **English** | [Deutsch](README.de.md) | [Changelog](CHANGELOG.md)
 
-A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **Minecraft 26.2 (Fabric)** — play your own local **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`**, and **`.ogg`** music collection using a portable **MP3 Player** or place down a **Boombox** in the world for stationary 3D spatial sound, complete with a dedicated volume slider right inside Minecraft's **Music & Sounds Options**!
+A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **Minecraft 26.2 (Fabric)** — play your own local **`.mp3`**, **`.m4a`**, **`.opus`**, **`.wav`**, **`.flac`**, and **`.ogg`** music collection or stream your **YouTube Music (`YTM`)** and **Spotify (`Spot`)** playlists using a portable **MP3 Player**, a stationary **3D Boombox**, or **Linkable 3D Speaker Networks**, complete with a dedicated volume slider right inside Minecraft's **Music & Sounds Options**!
 
 ---
 
 ## Features
 
-- **Spotify Account Linking & Playlist Playback (`v1.3.4`):**
-  - **Spotify Account Verification Gate (`Spot` Tab):** Requires linking your Spotify account before browsing or playing Spotify playlists. Includes a built-in local OAuth 2.0 PKCE & Account Linking Portal (`http://127.0.0.1:8888/spotify`) with a step-by-step setup guide, as well as direct Client ID, Profile URL, or OAuth token linking inside the GUI.
-  - **Full Playlist Pagination (No 100-Song Cap, Rate-Limit Safe):** Fetches entire Spotify playlists of any size (e.g., `250+` up to `5,000` songs) without rate limits by combining Spotify Web API pagination and Partner Pathfinder GraphQL pagination (`fetchPlaylistContents`).
+- **YouTube Music Integration (`YTM` Tab, New in `v1.3.5`):**
+  - **YouTube Music Account & Library Linking (`http://127.0.0.1:8889/ytmusic`):** Bilingual (English & German) local browser portal and direct in-game linking via YouTube `@Handle` / channel URL, playlist URLs (`music.youtube.com/playlist?list=...`, `browse/VL...`, `browse/MPREb_...`, `OLAK5uy_...`), or optional Browser Session Sync (`Firefox`, `Edge`, `Chrome`, `Brave`, `Opera`, `Vivaldi`) to automatically discover your saved playlists (including playlists created by other users saved to your library) and **Liked Music (`LM`)**.
+  - **Full Playlist Loading & Live In-Game Search (`+ / Search`):** Loads entire YouTube Music playlists without any 100-song cap and lets you search any song or artist live on YouTube Music directly from the GUI, resolving tracks by their exact 11-character video ID for 1:1 playback across Headphones, 3D Boomboxes, and Linked Speaker Networks (`+` Queue).
+- **Spotify Account Linking & Playlist Playback (`Spot` Tab, `v1.3.4` / `v1.3.5`):**
+  - **Spotify Account Verification Gate (`Spot` Tab):** Requires linking your Spotify account before browsing or playing Spotify playlists. Includes a bilingual (English & German) local OAuth 2.0 PKCE & Account Linking Portal (`http://127.0.0.1:8888/spotify`) with a step-by-step setup guide, as well as direct Client ID, Profile URL, or OAuth token linking inside the GUI.
+  - **Personal & Saved Third-Party Playlists + Albums (No 100-Song Cap):** Automatically loads your own playlists, playlists created by other users that you saved to your library (`/v1/me/playlists`), and saved albums (`/v1/me/albums`), and fetches entire playlists of any size (`250+` up to `5,000` songs) without rate limits via Spotify Web API and Partner Pathfinder GraphQL pagination (`fetchPlaylistContents`).
   - **Studio-Accurate Track Resolution & Caching:** Resolves tracks by matching official YouTube Topic / Official Audio studio masters against the exact Spotify track duration (`±8s` tolerance) while automatically filtering out unofficial `Slowed`, `Sped Up`, `Nightcore`, or `Remix` uploads. Cached streams are stored in `mp3s/.spotify-cache/` and work seamlessly on **Headphones**, a placed **3D Boombox**, and **Linked Speaker Networks** (including the `[+]` **Speaker Playback Queue**).
 - **Linkable 3D Speakers (`mp3player:speaker`) & Speaker Controller (`mp3player:speaker_controller`):**
   - **Full 16×16×16 Speaker Blocks with Zero Particles & Unlimited Linking (`Integer.MAX_VALUE`):** Placeable directional full-cube studio speakers that emit **no particles** during playback, with no cap on the number of linkable speakers.
@@ -57,16 +60,17 @@ A sleek **in-game multi-format music player & placeable 3D Boombox** mod for **M
 - **Java:** `25+`
 
 ### Getting Started
-1. Drop `mp3player-1.3.4.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
-   > **Essential World Hosting & Multiplayer Note:** To use **3D Speaker Mode**, a placed **Boombox**, or **Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.4.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
+1. Drop `mp3player-1.3.5.jar` alongside **Fabric API (`26.2`)** into your Minecraft instance's `mods` folder (e.g., in the Modrinth App).
+   > **Essential World Hosting & Multiplayer Note:** To use **3D Speaker Mode**, a placed **Boombox**, or **Linked Speakers** with friends, all players (and the Fabric server, if dedicated) must have `mp3player-1.3.5.jar` installed. Your friends do **not** need your audio files on their PC — audio from any format is Opus-encoded on-the-fly and streamed live in real time!
 2. **Add Your Own Audio Files (3 Ways):**
    - **In-Game Button:** Open the MP3 Player or Boombox → Click **"Folder"** *(automatically opens `<minecraft-instance>/mp3s/` in your file manager)*.
    - **Drag & Drop:** Drag `.mp3`, `.m4a`, `.opus`, `.wav`, `.flac`, or `.ogg` files (or folders) directly onto the open player GUI inside Minecraft.
    - **Manual Copy:** Place your audio files inside `<minecraft-instance>/mp3s/` *(subfolders are scanned automatically)*.
-3. **Link Your Spotify Account (`Spot` Tab — 2 Options):**
-   - Open the MP3 Player or Speaker Controller GUI in-game, click the **`Spot`** button in the top header, and click **`Web`** to open the local linking portal (`http://127.0.0.1:8888/spotify`):
-     - **Option 1 — Quick Link (No Developer App Required):** Enter your Spotify account name (or profile URL) and paste one or more Spotify playlist links. You can also add additional playlist links at any time directly inside the in-game `Spot` tab (`+ Playlist`).
-     - **Option 2 — Official Spotify OAuth 2.0 PKCE Login (Loads All Personal/Private Playlists & Liked Songs):**
+3. **Link Your YouTube Music (`YTM` Tab) or Spotify (`Spot` Tab) Account:**
+   - **YouTube Music (`YTM` Tab):** Click **`YTM`** in the top header and click **`Web`** (`http://127.0.0.1:8889/ytmusic`, available in English & German) to link your `@Handle` / channel, paste playlist or album links (`music.youtube.com/playlist?list=...`, `browse/VL...`, `browse/MPREb_...`), or enable Browser Session Sync to auto-import all saved playlists in your library and **Liked Music (`LM`)**. Inside the `YTM` tab, you can also type any song or artist name into the top bar (`+ / Search`) for live YouTube Music search!
+   - **Spotify (`Spot` Tab — 2 Options):** Open the `Spot` tab and click **`Web`** (`http://127.0.0.1:8888/spotify`, available in English & German):
+     - **Option 1 — Quick Link (No Developer App Required):** Enter your Spotify account name (or profile URL) and paste one or more Spotify playlist/album links. You can also add additional playlist links at any time directly inside the in-game `Spot` tab (`+ Playlist`).
+     - **Option 2 — Official Spotify OAuth 2.0 PKCE Login (Loads All Personal/Private/Saved Playlists, Saved Albums & Liked Songs):**
        1. Sign in to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and click **Create app**.
        2. Enter any **App name** (e.g., `Minecraft MP3 Player`) and **App description**.
        3. Under **Redirect URIs**, enter `http://127.0.0.1:8888/callback` and click **Add**.
@@ -160,9 +164,9 @@ src/
         │   └── decoder/                 # Streaming PCM + seek decoders (MP3, M4A, OPUS, WAV, FLAC, OGG)
         ├── config/Mp3Config.java        # Persistent player & Sound Options preferences
         ├── debug/                       # Client-side Netty timeout simulation helper (/mp3timeout)
-        ├── gui/                         # Mp3PlayerScreen (Tracks, Speakers, Queue & Spotify tabs) & SoundOptionsInjector
+        ├── gui/                         # Mp3PlayerScreen (Tracks, Speakers, Queue, Spotify & YT Music tabs) & SoundOptionsInjector
         ├── library/Mp3LibraryManager.java
-        └── spotify/SpotifyManager.java  # Spotify OAuth 2.0 PKCE portal, full playlist pagination & studio audio resolver
+        └── spotify/                     # SpotifyManager & YtMusicManager (Bilingual portals, full pagination & audio resolver)
 ```
 
 ### Build Instructions
@@ -172,7 +176,7 @@ Requires **JDK 25**:
 .\gradlew.bat build
 ```
 
-The compiled mod JAR will be output to `build/libs/mp3player-1.3.4.jar`.
+The compiled mod JAR will be output to `build/libs/mp3player-1.3.5.jar`.
 
 ---
 

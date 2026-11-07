@@ -10,6 +10,9 @@ import de.vibecoded.mp3player.client.config.Mp3Config.LoopMode;
 import de.vibecoded.mp3player.client.spotify.SpotifyManager;
 import de.vibecoded.mp3player.client.spotify.SpotifyManager.SpotifyPlaylist;
 import de.vibecoded.mp3player.client.spotify.SpotifyManager.SpotifyTrack;
+import de.vibecoded.mp3player.client.spotify.YtMusicManager;
+import de.vibecoded.mp3player.client.spotify.YtMusicManager.YtMusicPlaylist;
+import de.vibecoded.mp3player.client.spotify.YtMusicManager.YtMusicTrack;
 import de.vibecoded.mp3player.mp3.Mp3TrackInfo;
 import de.vibecoded.mp3player.network.Mp3Payloads.QueueEntryInfo;
 import java.nio.file.Path;
@@ -36,13 +39,14 @@ import net.minecraft.world.level.Level;
 import org.lwjgl.glfw.GLFW;
 
 public class Mp3PlayerScreen extends Screen {
-	private static final int ROW_HEIGHT = 22;
+	private static final int ROW_HEIGHT = 24;
 
 	private enum ViewTab {
 		TRACKS,
 		SPEAKERS,
 		QUEUE,
-		SPOTIFY
+		SPOTIFY,
+		YTMUSIC
 	}
 
 	private final Mp3AudioController controller;
@@ -91,6 +95,7 @@ public class Mp3PlayerScreen extends Screen {
 	private Button spotifyRefreshBtn;
 	private Button spotifyUnlinkBtn;
 
+	private Button ytMusicHeaderBtn;
 	private Button spotifyHeaderBtn;
 	private Button queueHeaderBtn;
 	private Button speakersHeaderBtn;
@@ -102,17 +107,23 @@ public class Mp3PlayerScreen extends Screen {
 
 	private String searchQuery = "";
 	private String spotifyInputText = "";
+	private String ytMusicInputText = "";
 	private SpotifyPlaylist selectedSpotifyPlaylist = null;
+	private YtMusicPlaylist selectedYtMusicPlaylist = null;
 	private boolean lastKnownSpotifyLinked = false;
+	private boolean lastKnownYtMusicLinked = false;
 	private List<Mp3TrackInfo> filteredTracks = List.of();
 	private List<LinkedSpeaker> currentSpeakers = List.of();
 	private List<QueueEntryInfo> currentQueue = List.of();
 	private List<SpotifyPlaylist> currentSpotifyPlaylists = List.of();
 	private List<SpotifyTrack> currentSpotifyTracks = List.of();
+	private List<YtMusicPlaylist> currentYtMusicPlaylists = List.of();
+	private List<YtMusicTrack> currentYtMusicTracks = List.of();
 	private double scrollOffset = 0.0;
 	private double speakerScrollOffset = 0.0;
 	private double queueScrollOffset = 0.0;
 	private double spotifyScrollOffset = 0.0;
+	private double ytMusicScrollOffset = 0.0;
 	private boolean draggingSeek = false;
 	private double dragSeekRatio = 0.0;
 	private boolean draggingScrollbar = false;
@@ -181,8 +192,8 @@ public class Mp3PlayerScreen extends Screen {
 
 	@Override
 	protected void init() {
-		this.panelW = Math.min(368, Math.max(310, this.width - 24));
-		this.panelH = Math.min(278, Math.max(220, this.height - 16));
+		this.panelW = Math.min(448, Math.max(340, this.width - 36));
+		this.panelH = Math.min(310, Math.max(226, this.height - 24));
 		this.panelX = (this.width - this.panelW) / 2;
 		this.panelY = (this.height - this.panelH) / 2;
 
@@ -197,38 +208,54 @@ public class Mp3PlayerScreen extends Screen {
 		this.seekBarY = deckTop + 19;
 
 		this.lastKnownSpotifyLinked = controller.spotify().isAccountLinked();
+		this.lastKnownYtMusicLinked = controller.ytMusic().isAccountLinked();
 		updateFilteredList();
 		updateSpeakerList();
 		updateQueueList();
 		updateSpotifyList();
+		updateYtMusicList();
 
-		// 1. Header Tab Toggles (Spotify + Queue badge + Speakers badge) + Output Mode Button
+		// 1. Header Tab Toggles (YT Music + Spotify + Queue badge + Speakers badge) + Output Mode Button
+		this.ytMusicHeaderBtn = Button.builder(buildYtMusicHeaderLabel(), btn -> {
+			this.viewTab = (this.viewTab == ViewTab.YTMUSIC) ? ViewTab.TRACKS : ViewTab.YTMUSIC;
+			if (this.spotifyInputBox != null) {
+				this.spotifyInputBox.setValue(this.ytMusicInputText);
+			}
+			updateYtMusicList();
+			syncTabVisibility();
+			refreshButtonLabels();
+		}).bounds(panelX + panelW - 280, panelY + 5, 38, 18).build();
+		this.addRenderableWidget(this.ytMusicHeaderBtn);
+
 		this.spotifyHeaderBtn = Button.builder(buildSpotifyHeaderLabel(), btn -> {
 			this.viewTab = (this.viewTab == ViewTab.SPOTIFY) ? ViewTab.TRACKS : ViewTab.SPOTIFY;
+			if (this.spotifyInputBox != null) {
+				this.spotifyInputBox.setValue(this.spotifyInputText);
+			}
 			updateSpotifyList();
 			syncTabVisibility();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 266, panelY + 5, 44, 18).build();
+		}).bounds(panelX + panelW - 239, panelY + 5, 40, 18).build();
 		this.addRenderableWidget(this.spotifyHeaderBtn);
 
 		this.queueHeaderBtn = Button.builder(buildQueueHeaderLabel(), btn -> {
 			this.viewTab = (this.viewTab == ViewTab.QUEUE) ? ViewTab.TRACKS : ViewTab.QUEUE;
 			syncTabVisibility();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 219, panelY + 5, 40, 18).build();
+		}).bounds(panelX + panelW - 196, panelY + 5, 36, 18).build();
 		this.addRenderableWidget(this.queueHeaderBtn);
 
 		this.speakersHeaderBtn = Button.builder(buildSpeakersHeaderLabel(), btn -> {
 			this.viewTab = (this.viewTab == ViewTab.SPEAKERS) ? ViewTab.TRACKS : ViewTab.SPEAKERS;
 			syncTabVisibility();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 176, panelY + 5, 45, 18).build();
+		}).bounds(panelX + panelW - 157, panelY + 5, 41, 18).build();
 		this.addRenderableWidget(this.speakersHeaderBtn);
 
 		this.modeBtn = Button.builder(buildModeLabel(), btn -> {
 			handleModeButtonClick();
 			refreshButtonLabels();
-		}).bounds(panelX + panelW - 128, panelY + 5, 120, 18).build();
+		}).bounds(panelX + panelW - 113, panelY + 5, 105, 18).build();
 		this.addRenderableWidget(this.modeBtn);
 
 		// 2A. TRACKS Tab Toolbar: Search Bar + Folder & Refresh Buttons
@@ -362,15 +389,25 @@ public class Mp3PlayerScreen extends Screen {
 		this.clearQueueBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.queue.clear_all")));
 		this.addRenderableWidget(this.clearQueueBtn);
 
-		// 2D. SPOTIFY Tab Toolbar (Account Link Gate OR Playlists / Playlist Tracks Browser)
+		// 2D. SPOTIFY & YT MUSIC Tab Toolbar (Account Link Gate OR Playlists / Playlist Tracks Browser)
 		this.spotifyBackBtn = Button.builder(Component.translatable("screen.mp3player.spotify.back_playlists"), btn -> {
-			this.selectedSpotifyPlaylist = null;
-			this.spotifyScrollOffset = 0.0;
-			this.spotifyInputText = "";
-			if (this.spotifyInputBox != null) {
-				this.spotifyInputBox.setValue("");
+			if (this.viewTab == ViewTab.YTMUSIC) {
+				this.selectedYtMusicPlaylist = null;
+				this.ytMusicScrollOffset = 0.0;
+				this.ytMusicInputText = "";
+				if (this.spotifyInputBox != null) {
+					this.spotifyInputBox.setValue("");
+				}
+				updateYtMusicList();
+			} else {
+				this.selectedSpotifyPlaylist = null;
+				this.spotifyScrollOffset = 0.0;
+				this.spotifyInputText = "";
+				if (this.spotifyInputBox != null) {
+					this.spotifyInputBox.setValue("");
+				}
+				updateSpotifyList();
 			}
-			updateSpotifyList();
 			syncTabVisibility();
 			refreshButtonLabels();
 		}).bounds(panelX + 8, panelY + 30, 66, 18).build();
@@ -385,29 +422,42 @@ public class Mp3PlayerScreen extends Screen {
 				Component.translatable("screen.mp3player.spotify.input_hint_unlinked")
 		);
 		this.spotifyInputBox.setMaxLength(512);
-		this.spotifyInputBox.setValue(spotifyInputText);
+		this.spotifyInputBox.setValue(this.viewTab == ViewTab.YTMUSIC ? ytMusicInputText : spotifyInputText);
 		this.spotifyInputBox.setResponder(val -> {
-			this.spotifyInputText = val;
-			if (selectedSpotifyPlaylist != null) {
-				this.spotifyScrollOffset = 0.0;
-				updateSpotifyList();
+			if (this.viewTab == ViewTab.YTMUSIC) {
+				this.ytMusicInputText = val;
+				if (selectedYtMusicPlaylist != null) {
+					this.ytMusicScrollOffset = 0.0;
+					updateYtMusicList();
+				}
+			} else {
+				this.spotifyInputText = val;
+				if (selectedSpotifyPlaylist != null) {
+					this.spotifyScrollOffset = 0.0;
+					updateSpotifyList();
+				}
 			}
 		});
 		this.addRenderableWidget(this.spotifyInputBox);
 
 		this.spotifyActionBtn = Button.builder(Component.translatable("screen.mp3player.spotify.connect_btn"), btn -> {
-			handleSpotifyPrimaryAction();
+			handleStreamingPrimaryAction();
 		}).bounds(panelX + panelW - 148, panelY + 30, 74, 18).build();
 		this.addRenderableWidget(this.spotifyActionBtn);
 
 		this.spotifyWebBtn = Button.builder(Component.translatable("screen.mp3player.spotify.web_btn"), btn -> {
 			String input = spotifyInputBox != null ? spotifyInputBox.getValue().trim() : "";
-			if (input.matches("[A-Za-z0-9]{32}")) {
-				controller.spotify().linkAccountFromInput(input);
+			if (this.viewTab == ViewTab.YTMUSIC) {
+				controller.ytMusic().openBrowserLinkingPage();
+				this.toastMessage = Component.translatable("screen.mp3player.ytmusic.browser_opened_toast").getString();
 			} else {
-				controller.spotify().openBrowserLinkingPage();
+				if (input.matches("[A-Za-z0-9]{32}")) {
+					controller.spotify().linkAccountFromInput(input);
+				} else {
+					controller.spotify().openBrowserLinkingPage();
+				}
+				this.toastMessage = Component.translatable("screen.mp3player.spotify.browser_opened_toast").getString();
 			}
-			this.toastMessage = Component.translatable("screen.mp3player.spotify.browser_opened_toast").getString();
 			this.toastExpireTimeMs = System.currentTimeMillis() + 3500L;
 			refreshButtonLabels();
 		}).bounds(panelX + panelW - 70, panelY + 30, 62, 18).build();
@@ -415,26 +465,44 @@ public class Mp3PlayerScreen extends Screen {
 		this.addRenderableWidget(this.spotifyWebBtn);
 
 		this.spotifyRefreshBtn = Button.builder(Component.literal("⟳"), btn -> {
-			if (selectedSpotifyPlaylist != null) {
-				controller.spotify().loadPlaylistTracks(selectedSpotifyPlaylist, true);
+			if (this.viewTab == ViewTab.YTMUSIC) {
+				if (selectedYtMusicPlaylist != null) {
+					controller.ytMusic().loadPlaylistTracks(selectedYtMusicPlaylist, true);
+				} else {
+					controller.ytMusic().refreshUserPlaylists();
+				}
+				updateYtMusicList();
 			} else {
-				controller.spotify().refreshUserPlaylists();
+				if (selectedSpotifyPlaylist != null) {
+					controller.spotify().loadPlaylistTracks(selectedSpotifyPlaylist, true);
+				} else {
+					controller.spotify().refreshUserPlaylists();
+				}
+				updateSpotifyList();
 			}
-			updateSpotifyList();
 			refreshButtonLabels();
 		}).bounds(panelX + panelW - 96, panelY + 30, 24, 18).build();
 		this.spotifyRefreshBtn.setTooltip(Tooltip.create(Component.translatable("screen.mp3player.spotify.refresh_tooltip")));
 		this.addRenderableWidget(this.spotifyRefreshBtn);
 
 		this.spotifyUnlinkBtn = Button.builder(Component.translatable("screen.mp3player.spotify.unlink_btn"), btn -> {
-			controller.spotify().unlinkAccount();
-			this.selectedSpotifyPlaylist = null;
-			this.spotifyScrollOffset = 0.0;
-			this.lastKnownSpotifyLinked = false;
-			updateSpotifyList();
+			if (this.viewTab == ViewTab.YTMUSIC) {
+				controller.ytMusic().unlinkAccount();
+				this.selectedYtMusicPlaylist = null;
+				this.ytMusicScrollOffset = 0.0;
+				this.lastKnownYtMusicLinked = false;
+				updateYtMusicList();
+				this.toastMessage = Component.translatable("screen.mp3player.ytmusic.unlinked_toast").getString();
+			} else {
+				controller.spotify().unlinkAccount();
+				this.selectedSpotifyPlaylist = null;
+				this.spotifyScrollOffset = 0.0;
+				this.lastKnownSpotifyLinked = false;
+				updateSpotifyList();
+				this.toastMessage = Component.translatable("screen.mp3player.spotify.unlinked_toast").getString();
+			}
 			syncTabVisibility();
 			refreshButtonLabels();
-			this.toastMessage = Component.translatable("screen.mp3player.spotify.unlinked_toast").getString();
 			this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
 		}).bounds(panelX + panelW - 68, panelY + 30, 60, 18).build();
 		this.addRenderableWidget(this.spotifyUnlinkBtn);
@@ -573,67 +641,134 @@ public class Mp3PlayerScreen extends Screen {
 		}
 
 		boolean spotifyTab = (this.viewTab == ViewTab.SPOTIFY);
-		boolean spotifyLinked = controller.spotify().isAccountLinked();
-		boolean inPlaylistTracks = spotifyLinked && selectedSpotifyPlaylist != null;
+		boolean ytMusicTab = (this.viewTab == ViewTab.YTMUSIC);
+		boolean streamingTab = spotifyTab || ytMusicTab;
+		boolean accountLinked = ytMusicTab
+				? controller.ytMusic().isAccountLinked()
+				: controller.spotify().isAccountLinked();
+		boolean inPlaylistTracks = accountLinked
+				&& (ytMusicTab ? selectedYtMusicPlaylist != null : selectedSpotifyPlaylist != null);
 
 		if (spotifyBackBtn != null) {
-			spotifyBackBtn.visible = spotifyTab && inPlaylistTracks;
-			spotifyBackBtn.active = spotifyTab && inPlaylistTracks;
+			spotifyBackBtn.visible = streamingTab && inPlaylistTracks;
+			spotifyBackBtn.active = streamingTab && inPlaylistTracks;
 		}
 		if (spotifyInputBox != null) {
-			spotifyInputBox.visible = spotifyTab;
-			spotifyInputBox.active = spotifyTab;
-			if (!spotifyTab) {
+			spotifyInputBox.visible = streamingTab;
+			spotifyInputBox.active = streamingTab;
+			if (!streamingTab) {
 				spotifyInputBox.setFocused(false);
 			} else {
-				if (!spotifyLinked) {
+				if (!accountLinked) {
 					spotifyInputBox.setX(panelX + 8);
 					spotifyInputBox.setWidth(panelW - 156);
-					spotifyInputBox.setHint(Component.translatable("screen.mp3player.spotify.input_hint_unlinked")
-							.withStyle(ChatFormatting.DARK_GRAY));
+					spotifyInputBox.setHint(Component.translatable(
+							ytMusicTab
+									? "screen.mp3player.ytmusic.input_hint_unlinked"
+									: "screen.mp3player.spotify.input_hint_unlinked"
+					).withStyle(ChatFormatting.DARK_GRAY));
 				} else if (inPlaylistTracks) {
 					spotifyInputBox.setX(panelX + 78);
 					spotifyInputBox.setWidth(panelW - 178);
-					spotifyInputBox.setHint(Component.translatable("screen.mp3player.spotify.filter_tracks_hint")
-							.withStyle(ChatFormatting.DARK_GRAY));
+					spotifyInputBox.setHint(Component.translatable(
+							ytMusicTab
+									? "screen.mp3player.ytmusic.filter_tracks_hint"
+									: "screen.mp3player.spotify.filter_tracks_hint"
+					).withStyle(ChatFormatting.DARK_GRAY));
 				} else {
 					spotifyInputBox.setX(panelX + 8);
 					spotifyInputBox.setWidth(panelW - 180);
-					spotifyInputBox.setHint(Component.translatable("screen.mp3player.spotify.add_playlist_hint")
-							.withStyle(ChatFormatting.DARK_GRAY));
+					spotifyInputBox.setHint(Component.translatable(
+							ytMusicTab
+									? "screen.mp3player.ytmusic.add_playlist_hint"
+									: "screen.mp3player.spotify.add_playlist_hint"
+					).withStyle(ChatFormatting.DARK_GRAY));
 				}
 			}
 		}
 		if (spotifyActionBtn != null) {
-			boolean showAction = spotifyTab && (!spotifyLinked || !inPlaylistTracks);
+			boolean showAction = streamingTab && (!accountLinked || !inPlaylistTracks);
 			spotifyActionBtn.visible = showAction;
 			spotifyActionBtn.active = showAction;
-			if (!spotifyLinked) {
+			if (!accountLinked) {
 				spotifyActionBtn.setX(panelX + panelW - 144);
 				spotifyActionBtn.setWidth(70);
 				spotifyActionBtn.setMessage(Component.translatable("screen.mp3player.spotify.connect_btn"));
 			} else {
 				spotifyActionBtn.setX(panelX + panelW - 168);
 				spotifyActionBtn.setWidth(68);
-				spotifyActionBtn.setMessage(Component.translatable("screen.mp3player.spotify.add_playlist_btn"));
+				spotifyActionBtn.setMessage(Component.translatable(
+						ytMusicTab
+								? "screen.mp3player.ytmusic.add_playlist_btn"
+								: "screen.mp3player.spotify.add_playlist_btn"
+				));
 			}
 		}
 		if (spotifyWebBtn != null) {
-			spotifyWebBtn.visible = spotifyTab && !spotifyLinked;
-			spotifyWebBtn.active = spotifyTab && !spotifyLinked;
+			spotifyWebBtn.visible = streamingTab && !accountLinked;
+			spotifyWebBtn.active = streamingTab && !accountLinked;
+			spotifyWebBtn.setTooltip(Tooltip.create(Component.translatable(
+					ytMusicTab
+							? "screen.mp3player.ytmusic.web_tooltip"
+							: "screen.mp3player.spotify.web_tooltip"
+			)));
 		}
 		if (spotifyRefreshBtn != null) {
-			spotifyRefreshBtn.visible = spotifyTab && spotifyLinked;
-			spotifyRefreshBtn.active = spotifyTab && spotifyLinked;
+			spotifyRefreshBtn.visible = streamingTab && accountLinked;
+			spotifyRefreshBtn.active = streamingTab && accountLinked;
 		}
 		if (spotifyUnlinkBtn != null) {
-			spotifyUnlinkBtn.visible = spotifyTab && spotifyLinked;
-			spotifyUnlinkBtn.active = spotifyTab && spotifyLinked;
+			spotifyUnlinkBtn.visible = streamingTab && accountLinked;
+			spotifyUnlinkBtn.active = streamingTab && accountLinked;
 		}
 	}
 
-	private void handleSpotifyPrimaryAction() {
+	private void handleStreamingPrimaryAction() {
 		String val = spotifyInputBox != null ? spotifyInputBox.getValue().trim() : "";
+		if (this.viewTab == ViewTab.YTMUSIC) {
+			if (!controller.ytMusic().isAccountLinked()) {
+				if (val.isEmpty()) {
+					controller.ytMusic().openBrowserLinkingPage();
+					this.toastMessage = Component.translatable("screen.mp3player.ytmusic.browser_opened_toast").getString();
+					this.toastExpireTimeMs = System.currentTimeMillis() + 3500L;
+				} else {
+					boolean started = controller.ytMusic().linkAccountFromInput(val);
+					if (started) {
+						this.ytMusicInputText = "";
+						if (spotifyInputBox != null) {
+							spotifyInputBox.setValue("");
+						}
+						this.lastKnownYtMusicLinked = controller.ytMusic().isAccountLinked();
+						updateYtMusicList();
+						syncTabVisibility();
+						refreshButtonLabels();
+					}
+				}
+				return;
+			}
+			if (!val.isEmpty()) {
+				YtMusicPlaylist added = controller.ytMusic().addPlaylistOrSearchFromInput(val);
+				if (added != null) {
+					this.ytMusicInputText = "";
+					if (spotifyInputBox != null) {
+						spotifyInputBox.setValue("");
+					}
+					this.selectedYtMusicPlaylist = added;
+					this.ytMusicScrollOffset = 0.0;
+					updateYtMusicList();
+					syncTabVisibility();
+					refreshButtonLabels();
+					this.toastMessage = Component.translatable(
+							added.searchResult()
+									? "screen.mp3player.ytmusic.search_started_toast"
+									: "screen.mp3player.ytmusic.playlist_added_toast"
+					).getString();
+					this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+				}
+			}
+			return;
+		}
+
 		if (!controller.spotify().isAccountLinked()) {
 			if (val.isEmpty()) {
 				controller.spotify().openBrowserLinkingPage();
@@ -759,7 +894,45 @@ public class Mp3PlayerScreen extends Screen {
 		clampSpotifyScroll();
 	}
 
+	private void updateYtMusicList() {
+		this.currentYtMusicPlaylists = controller.ytMusic().playlists();
+		if (selectedYtMusicPlaylist != null) {
+			for (YtMusicPlaylist p : currentYtMusicPlaylists) {
+				if (p.id().equals(selectedYtMusicPlaylist.id())) {
+					selectedYtMusicPlaylist = p;
+					break;
+				}
+			}
+			List<YtMusicTrack> all = controller.ytMusic().tracksForPlaylist(selectedYtMusicPlaylist);
+			String q = ytMusicInputText != null ? ytMusicInputText.trim().toLowerCase(Locale.ROOT) : "";
+			if (q.isEmpty()) {
+				this.currentYtMusicTracks = all;
+			} else {
+				List<YtMusicTrack> filtered = new ArrayList<>();
+				for (YtMusicTrack t : all) {
+					if (t.title().toLowerCase(Locale.ROOT).contains(q)
+							|| t.artist().toLowerCase(Locale.ROOT).contains(q)) {
+						filtered.add(t);
+					}
+				}
+				this.currentYtMusicTracks = filtered;
+			}
+		} else {
+			this.currentYtMusicTracks = List.of();
+		}
+		clampYtMusicScroll();
+	}
+
 	private void refreshButtonLabels() {
+		if (ytMusicHeaderBtn != null) {
+			ytMusicHeaderBtn.setMessage(buildYtMusicHeaderLabel());
+			String acc = controller.ytMusic().accountName();
+			ytMusicHeaderBtn.setTooltip(Tooltip.create(
+					controller.ytMusic().isAccountLinked()
+							? Component.translatable("screen.mp3player.ytmusic.header_linked_tooltip", acc)
+							: Component.translatable("screen.mp3player.ytmusic.header_unlinked_tooltip")
+			));
+		}
 		if (spotifyHeaderBtn != null) {
 			spotifyHeaderBtn.setMessage(buildSpotifyHeaderLabel());
 			String acc = controller.spotify().accountName();
@@ -769,11 +942,18 @@ public class Mp3PlayerScreen extends Screen {
 							: Component.translatable("screen.mp3player.spotify.header_unlinked_tooltip")
 			));
 		}
-		if (spotifyUnlinkBtn != null && controller.spotify().isAccountLinked()) {
-			spotifyUnlinkBtn.setTooltip(Tooltip.create(Component.translatable(
-					"screen.mp3player.spotify.unlink_tooltip",
-					controller.spotify().accountName()
-			)));
+		if (spotifyUnlinkBtn != null) {
+			if (this.viewTab == ViewTab.YTMUSIC && controller.ytMusic().isAccountLinked()) {
+				spotifyUnlinkBtn.setTooltip(Tooltip.create(Component.translatable(
+						"screen.mp3player.ytmusic.unlink_tooltip",
+						controller.ytMusic().accountName()
+				)));
+			} else if (this.viewTab == ViewTab.SPOTIFY && controller.spotify().isAccountLinked()) {
+				spotifyUnlinkBtn.setTooltip(Tooltip.create(Component.translatable(
+						"screen.mp3player.spotify.unlink_tooltip",
+						controller.spotify().accountName()
+				)));
+			}
 		}
 		if (queueHeaderBtn != null) {
 			queueHeaderBtn.setMessage(buildQueueHeaderLabel());
@@ -846,6 +1026,19 @@ public class Mp3PlayerScreen extends Screen {
 					controller.config().muteOthers() ? "screen.mp3player.mute_others.on" : "screen.mp3player.mute_others.off"
 			)));
 		}
+	}
+
+	private Component buildYtMusicHeaderLabel() {
+		boolean linked = controller.ytMusic().isAccountLinked();
+		ChatFormatting color;
+		if (viewTab == ViewTab.YTMUSIC) {
+			color = ChatFormatting.RED;
+		} else if (linked) {
+			color = ChatFormatting.DARK_RED;
+		} else {
+			color = ChatFormatting.GRAY;
+		}
+		return Component.literal((linked ? "🔴 " : "⚪ ") + "YTM").withStyle(color);
 	}
 
 	private Component buildSpotifyHeaderLabel() {
@@ -1059,6 +1252,22 @@ public class Mp3PlayerScreen extends Screen {
 		} else if (this.viewTab == ViewTab.SPOTIFY) {
 			updateSpotifyList();
 		}
+
+		boolean ytmLinkedNow = controller.ytMusic().isAccountLinked();
+		if (ytmLinkedNow != this.lastKnownYtMusicLinked) {
+			this.lastKnownYtMusicLinked = ytmLinkedNow;
+			updateYtMusicList();
+			syncTabVisibility();
+			if (ytmLinkedNow) {
+				this.toastMessage = Component.translatable(
+						"screen.mp3player.ytmusic.linked_toast",
+						controller.ytMusic().accountName()
+				).getString();
+				this.toastExpireTimeMs = System.currentTimeMillis() + 3500L;
+			}
+		} else if (this.viewTab == ViewTab.YTMUSIC) {
+			updateYtMusicList();
+		}
 		updateSpeakerList();
 		updateQueueList();
 		refreshButtonLabels();
@@ -1068,23 +1277,30 @@ public class Mp3PlayerScreen extends Screen {
 	public void extractRenderState(GuiGraphicsExtractor graphics, int mouseX, int mouseY, float partialTick) {
 		boolean boomboxUi = isBoomboxScreen();
 		boolean spotifyUi = viewTab == ViewTab.SPOTIFY;
+		boolean ytMusicUi = viewTab == ViewTab.YTMUSIC;
 		boolean speakerUi = speakerControllerScreen || viewTab == ViewTab.SPEAKERS || viewTab == ViewTab.QUEUE;
 
 		// 1. Main Hi-Fi Window Card + Drop Shadow + Border
 		graphics.fill(panelX + 3, panelY + 3, panelX + panelW + 3, panelY + panelH + 3, 0x66000000);
 		graphics.fillGradient(panelX, panelY, panelX + panelW, panelY + panelH, 0xF2111827, 0xF50B1120);
-		int borderColor = spotifyUi
+		int borderColor = ytMusicUi
+				? 0xFFFF0033
+				: (spotifyUi
 				? 0xFF1DB954
-				: (boomboxUi ? 0xFF10B981 : (speakerUi ? 0xFF8B5CF6 : 0xFF334155));
+				: (boomboxUi ? 0xFF10B981 : (speakerUi ? 0xFF8B5CF6 : 0xFF334155)));
 		graphics.outline(panelX, panelY, panelW, panelH, borderColor);
 
 		// Header separator & subtle gradient bar
-		int headerTopGrad = spotifyUi
+		int headerTopGrad = ytMusicUi
+				? 0x884C0519
+				: (spotifyUi
 				? 0x88064E3B
-				: (boomboxUi ? 0x88064E3B : (speakerUi ? 0x883B0764 : 0x881E293B));
-		int headerLineCol = spotifyUi
+				: (boomboxUi ? 0x88064E3B : (speakerUi ? 0x883B0764 : 0x881E293B)));
+		int headerLineCol = ytMusicUi
+				? 0xFFFF0033
+				: (spotifyUi
 				? 0xFF1DB954
-				: (boomboxUi ? 0xFF065F46 : (speakerUi ? 0xFF581C87 : 0xFF1E293B));
+				: (boomboxUi ? 0xFF065F46 : (speakerUi ? 0xFF581C87 : 0xFF1E293B)));
 		graphics.fillGradient(panelX + 1, panelY + 1, panelX + panelW - 1, panelY + 27, headerTopGrad, 0x220F172A);
 		graphics.horizontalLine(panelX + 1, panelX + panelW - 2, panelY + 27, headerLineCol);
 
@@ -1092,7 +1308,17 @@ public class Mp3PlayerScreen extends Screen {
 		graphics.fakeItem(iconStack, panelX + 7, panelY + 5);
 		String titleText;
 		String countBadge;
-		if (viewTab == ViewTab.SPOTIFY) {
+		if (viewTab == ViewTab.YTMUSIC) {
+			if (selectedYtMusicPlaylist != null) {
+				titleText = selectedYtMusicPlaylist.name();
+				countBadge = "(" + currentYtMusicTracks.size() + ")";
+			} else {
+				titleText = Component.translatable("screen.mp3player.ytmusic.title").getString();
+				countBadge = controller.ytMusic().isAccountLinked()
+						? "(" + currentYtMusicPlaylists.size() + ")"
+						: "";
+			}
+		} else if (viewTab == ViewTab.SPOTIFY) {
 			if (selectedSpotifyPlaylist != null) {
 				titleText = selectedSpotifyPlaylist.name();
 				countBadge = "(" + currentSpotifyTracks.size() + ")";
@@ -1116,18 +1342,20 @@ public class Mp3PlayerScreen extends Screen {
 					: "(" + controller.library().tracks().size() + ")");
 		}
 
-		int maxTitleAreaW = Math.max(36, (panelX + panelW - 270) - (panelX + 27));
+		int maxTitleAreaW = Math.max(40, (panelX + panelW - 284) - (panelX + 27));
 		int countW = countBadge.isEmpty() ? 0 : this.font.width(countBadge) + 5;
 		String titleStr = clipText(titleText, Math.max(24, maxTitleAreaW - countW));
-		int titleColor = spotifyUi
+		int titleColor = ytMusicUi
+				? 0xFFFDA4AF
+				: (spotifyUi
 				? 0xFF86EFAC
-				: (boomboxUi ? 0xFFA7F3D0 : (speakerUi ? 0xFFDDD6FE : 0xFFF8FAFC));
+				: (boomboxUi ? 0xFFA7F3D0 : (speakerUi ? 0xFFDDD6FE : 0xFFF8FAFC)));
 		graphics.text(this.font, titleStr, panelX + 27, panelY + 10, titleColor, true);
 		if (!countBadge.isEmpty()) {
 			graphics.text(this.font, countBadge, panelX + 27 + this.font.width(titleStr) + 4, panelY + 10, 0xFF64748B, false);
 		}
 
-		// 2. Center Recessed Box (Playlist, Linked Speakers, Playback Queue, or Spotify)
+		// 2. Center Recessed Box (Playlist, Linked Speakers, Playback Queue, Spotify, or YT Music)
 		graphics.fill(listLeft, listTop, listRight, listBottom, 0xCC070B14);
 		graphics.outline(listLeft, listTop, listRight - listLeft, listBottom - listTop, 0xFF1E293B);
 
@@ -1137,6 +1365,8 @@ public class Mp3PlayerScreen extends Screen {
 			renderQueueList(graphics, mouseX, mouseY);
 		} else if (viewTab == ViewTab.SPOTIFY) {
 			renderSpotifyView(graphics, mouseX, mouseY);
+		} else if (viewTab == ViewTab.YTMUSIC) {
+			renderYtMusicView(graphics, mouseX, mouseY);
 		} else {
 			renderTrackList(graphics, mouseX, mouseY);
 		}
@@ -1616,10 +1846,10 @@ public class Mp3PlayerScreen extends Screen {
 	}
 
 	private void renderSpotifyView(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-		int innerLeft = listLeft + 1;
-		int innerTop = listTop + 1;
-		int innerRight = listRight - 1;
-		int innerBottom = listBottom - 1;
+		int innerLeft = listLeft + 2;
+		int innerTop = listTop + 2;
+		int innerRight = listRight - 2;
+		int innerBottom = listBottom - 2;
 		int viewHeight = innerBottom - innerTop;
 		SpotifyManager spotify = controller.spotify();
 
@@ -1747,7 +1977,8 @@ public class Mp3PlayerScreen extends Screen {
 				graphics.centeredText(this.font, "✕", rmX + rmW / 2, pillY + 2, 0xFFFECACA);
 
 				int count = Math.max(pl.trackCount(), spotify.tracksForPlaylist(pl).size());
-				String badge = count > 0 ? (count + " Songs ▶") : "Öffnen ▶";
+				String openStr = SpotifyManager.isGermanLocale() ? "Öffnen ▶" : "Open ▶";
+				String badge = count > 0 ? (count + " ▶") : openStr;
 				int badgeW = this.font.width(badge) + 8;
 				int badgeX = rmX - 5 - badgeW;
 				graphics.fill(badgeX, pillY, badgeX + badgeW, pillY + pillH, 0x33065F46);
@@ -1755,7 +1986,7 @@ public class Mp3PlayerScreen extends Screen {
 				graphics.text(this.font, badge, badgeX + 4, pillY + 2, 0xFFA7F3D0, false);
 
 				int textX = innerLeft + 24;
-				int availW = Math.max(40, badgeX - textX - 6);
+				int availW = Math.max(40, badgeX - textX - 8);
 				graphics.text(
 						this.font,
 						clipText(pl.name(), availW),
@@ -1770,7 +2001,7 @@ public class Mp3PlayerScreen extends Screen {
 						this.font,
 						clipText(sub, availW),
 						textX,
-						rowTop + 12,
+						rowTop + 13,
 						0xFF6EE7B7,
 						false
 				);
@@ -1858,10 +2089,10 @@ public class Mp3PlayerScreen extends Screen {
 				graphics.text(this.font, num, iconX, rowTop + 7, 0xFF475569, false);
 			}
 
-			// Right-side [+] Speaker Queue button + Duration + SPOTIFY badge
+			// Right-side [+] Speaker Queue button + Duration + optional compact cached check
 			int qBtnW = 16;
 			int qBtnX = innerRight - 8 - qBtnW;
-			int qBtnY = rowTop + 5;
+			int qBtnY = rowTop + 6;
 			int qBtnH = 12;
 			boolean hoverQueueBtn = isHovered && mouseX >= qBtnX && mouseX <= qBtnX + qBtnW;
 			graphics.fill(qBtnX, qBtnY, qBtnX + qBtnW, qBtnY + qBtnH, hoverQueueBtn ? 0xAA8B5CF6 : 0x331E293B);
@@ -1870,19 +2101,20 @@ public class Mp3PlayerScreen extends Screen {
 
 			String dur = track.formattedDuration();
 			int durW = this.font.width(dur);
-			int durX = qBtnX - 5 - durW;
-			graphics.text(this.font, dur, durX, rowTop + 7, isCurrent ? 0xFFA7F3D0 : 0xFF94A3B8, false);
+			int durX = qBtnX - 6 - durW;
+			graphics.text(this.font, dur, durX, rowTop + 8, isCurrent ? 0xFFA7F3D0 : 0xFF94A3B8, false);
 
-			String badge = isCached ? "SPOT✔" : "SPOT";
-			int badgeW = this.font.width(badge) + 6;
-			int badgeX = durX - 5 - badgeW;
-			int badgeY = rowTop + 5;
-			graphics.fill(badgeX, badgeY, badgeX + badgeW, badgeY + 12, isCached ? 0x33059669 : 0x221E293B);
-			graphics.outline(badgeX, badgeY, badgeW, 12, isCached ? 0xFF1DB954 : 0xFF334155);
-			graphics.text(this.font, badge, badgeX + 3, badgeY + 2, isCached ? 0xFF86EFAC : 0xFF64748B, false);
+			int rightTextLimitX = durX - 6;
+			if (isCached) {
+				String badge = "✔";
+				int badgeW = this.font.width(badge) + 4;
+				int badgeX = durX - 4 - badgeW;
+				graphics.text(this.font, badge, badgeX + 2, rowTop + 8, 0xFF34D399, false);
+				rightTextLimitX = badgeX - 4;
+			}
 
 			int textX = innerLeft + 26;
-			int availTextW = Math.max(40, badgeX - textX - 6);
+			int availTextW = Math.max(40, rightTextLimitX - textX);
 			boolean hasArtist = track.artist() != null && !track.artist().isBlank();
 			if (hasArtist) {
 				graphics.text(
@@ -1897,7 +2129,7 @@ public class Mp3PlayerScreen extends Screen {
 						this.font,
 						clipText(track.artist(), availTextW),
 						textX,
-						rowTop + 12,
+						rowTop + 13,
 						isCurrent ? 0xFF6EE7B7 : 0xFF64748B,
 						false
 				);
@@ -1906,7 +2138,7 @@ public class Mp3PlayerScreen extends Screen {
 						this.font,
 						clipText(track.title(), availTextW),
 						textX,
-						rowTop + 7,
+						rowTop + 8,
 						isCurrent ? 0xFFFFFFFF : 0xFFF1F5F9,
 						isCurrent
 				);
@@ -1924,6 +2156,321 @@ public class Mp3PlayerScreen extends Screen {
 			double maxScroll = contentHeight - viewHeight;
 			int thumbY = innerTop + 1 + (int) Math.round((spotifyScrollOffset / maxScroll) * (viewHeight - 2 - thumbH));
 			graphics.fill(sbX1, thumbY, sbX2, thumbY + thumbH, draggingScrollbar ? 0xFF1DB954 : 0xAA64748B);
+		}
+	}
+
+	private void renderYtMusicView(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+		int innerLeft = listLeft + 2;
+		int innerTop = listTop + 2;
+		int innerRight = listRight - 2;
+		int innerBottom = listBottom - 2;
+		int viewHeight = innerBottom - innerTop;
+		YtMusicManager ytMusic = controller.ytMusic();
+
+		// 1. Account Link Required Screen when not yet linked
+		if (!ytMusic.isAccountLinked()) {
+			int cardW = Math.min(panelW - 36, 320);
+			int cardH = Math.min(viewHeight - 12, 114);
+			int cardX = panelX + (panelW - cardW) / 2;
+			int cardY = innerTop + (viewHeight - cardH) / 2;
+
+			graphics.fill(cardX, cardY, cardX + cardW, cardY + cardH, 0xCC2A0610);
+			graphics.outline(cardX, cardY, cardW, cardH, 0xFFFF0033);
+
+			int ty = cardY + 10;
+			graphics.centeredText(
+					this.font,
+					Component.translatable("screen.mp3player.ytmusic.link_required.title"),
+					panelX + panelW / 2,
+					ty,
+					0xFFFF4E6A
+			);
+			ty += 16;
+			graphics.centeredText(
+					this.font,
+					clipText(Component.translatable("screen.mp3player.ytmusic.link_required.subtitle1").getString(), cardW - 16),
+					panelX + panelW / 2,
+					ty,
+					0xFFE2E8F0
+			);
+			ty += 13;
+			graphics.centeredText(
+					this.font,
+					clipText(Component.translatable("screen.mp3player.ytmusic.link_required.subtitle2").getString(), cardW - 16),
+					panelX + panelW / 2,
+					ty,
+					0xFF94A3B8
+			);
+			ty += 13;
+			graphics.centeredText(
+					this.font,
+					clipText(Component.translatable("screen.mp3player.ytmusic.link_required.subtitle3").getString(), cardW - 16),
+					panelX + panelW / 2,
+					ty,
+					0xFF64748B
+			);
+
+			String status = ytMusic.statusMessage();
+			if (status != null && !status.isBlank()) {
+				graphics.centeredText(
+						this.font,
+						clipText(status, cardW - 16),
+						panelX + panelW / 2,
+						cardY + cardH - 16,
+						ytMusic.isBusy() ? 0xFFFBBF24 : 0xFFFF4E6A
+				);
+			}
+			return;
+		}
+
+		boolean inListBounds = mouseX >= innerLeft && mouseX < innerRight - 5 && mouseY >= innerTop && mouseY < innerBottom;
+
+		// 2. Playlists & Live Search Overview when no playlist is opened
+		if (selectedYtMusicPlaylist == null) {
+			if (currentYtMusicPlaylists.isEmpty()) {
+				int cy = innerTop + viewHeight / 2 - 14;
+				graphics.centeredText(
+						this.font,
+						Component.translatable("screen.mp3player.ytmusic.empty_playlists.title", ytMusic.accountName()),
+						panelX + panelW / 2,
+						cy,
+						0xFFFDA4AF
+				);
+				graphics.centeredText(
+						this.font,
+						Component.translatable("screen.mp3player.ytmusic.empty_playlists.subtitle"),
+						panelX + panelW / 2,
+						cy + 14,
+						0xFF94A3B8
+				);
+				if (ytMusic.statusMessage() != null && !ytMusic.statusMessage().isBlank()) {
+					graphics.centeredText(
+							this.font,
+							clipText(ytMusic.statusMessage(), panelW - 30),
+							panelX + panelW / 2,
+							cy + 29,
+							0xFFFF4E6A
+					);
+				}
+				return;
+			}
+
+			graphics.enableScissor(innerLeft, innerTop, innerRight, innerBottom);
+			YtMusicPlaylist activePl = controller.activeYtMusicPlaylist();
+
+			for (int i = 0; i < currentYtMusicPlaylists.size(); i++) {
+				int rowTop = (int) Math.round(innerTop + i * ROW_HEIGHT - ytMusicScrollOffset);
+				int rowBottom = rowTop + ROW_HEIGHT;
+				if (rowBottom < innerTop || rowTop > innerBottom) {
+					continue;
+				}
+
+				YtMusicPlaylist pl = currentYtMusicPlaylists.get(i);
+				boolean isActivePl = activePl != null && activePl.id().equals(pl.id());
+				boolean isHovered = inListBounds && mouseY >= rowTop && mouseY < rowBottom;
+
+				if (isActivePl) {
+					graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x38E11D48);
+					graphics.fill(innerLeft, rowTop, innerLeft + 3, rowBottom - 1, 0xFFFF0033);
+				} else if (isHovered) {
+					graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x2A475569);
+				} else if ((i & 1) == 1) {
+					graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x121E293B);
+				}
+
+				graphics.text(this.font, pl.searchResult() ? "🔎" : "🔴", innerLeft + 7, rowTop + 7, 0xFFFF0033, false);
+
+				// Right-side [✕] Remove Playlist button + Track count pill
+				int rmW = 16;
+				int rmX = innerRight - 8 - rmW;
+				int pillY = rowTop + 5;
+				int pillH = 12;
+				boolean hoverRm = isHovered && mouseX >= rmX && mouseX <= rmX + rmW;
+				graphics.fill(rmX, pillY, rmX + rmW, pillY + pillH, hoverRm ? 0xAAEF4444 : 0x337F1D1D);
+				graphics.outline(rmX, pillY, rmW, pillH, hoverRm ? 0xFFF87171 : 0xFF7F1D1D);
+				graphics.centeredText(this.font, "✕", rmX + rmW / 2, pillY + 2, 0xFFFECACA);
+
+				int count = Math.max(pl.trackCount(), ytMusic.tracksForPlaylist(pl).size());
+				String openStr = SpotifyManager.isGermanLocale() ? "Öffnen ▶" : "Open ▶";
+				String badge = count > 0 ? (count + " ▶") : openStr;
+				int badgeW = this.font.width(badge) + 8;
+				int badgeX = rmX - 5 - badgeW;
+				graphics.fill(badgeX, pillY, badgeX + badgeW, pillY + pillH, 0x33881337);
+				graphics.outline(badgeX, pillY, badgeW, pillH, 0xFFF43F5E);
+				graphics.text(this.font, badge, badgeX + 4, pillY + 2, 0xFFFECDD3, false);
+
+				int textX = innerLeft + 24;
+				int availW = Math.max(40, badgeX - textX - 8);
+				graphics.text(
+						this.font,
+						clipText(pl.name(), availW),
+						textX,
+						rowTop + 3,
+						0xFFF8FAFC,
+						isActivePl
+				);
+				String searchSuffix = SpotifyManager.isGermanLocale() ? " • YT Music Suche" : " • YT Music Search";
+				String sub = (pl.owner() != null && !pl.owner().isBlank() ? pl.owner() : ytMusic.accountName())
+						+ (pl.searchResult() ? searchSuffix : " • YT Music Playlist");
+				graphics.text(
+						this.font,
+						clipText(sub, availW),
+						textX,
+						rowTop + 13,
+						0xFFFDA4AF,
+						false
+				);
+			}
+
+			graphics.disableScissor();
+
+			int contentHeight = currentYtMusicPlaylists.size() * ROW_HEIGHT;
+			if (contentHeight > viewHeight) {
+				int sbX1 = innerRight - 4;
+				int sbX2 = innerRight - 1;
+				graphics.fill(sbX1, innerTop + 1, sbX2, innerBottom - 1, 0x441E293B);
+				int thumbH = Math.max(18, (int) ((viewHeight * (double) viewHeight) / contentHeight));
+				double maxScroll = contentHeight - viewHeight;
+				int thumbY = innerTop + 1 + (int) Math.round((ytMusicScrollOffset / maxScroll) * (viewHeight - 2 - thumbH));
+				graphics.fill(sbX1, thumbY, sbX2, thumbY + thumbH, draggingScrollbar ? 0xFFFF0033 : 0xAA64748B);
+			}
+			return;
+		}
+
+		// 3. Selected Playlist / Search Tracks View
+		if (currentYtMusicTracks.isEmpty()) {
+			int cy = innerTop + viewHeight / 2 - 8;
+			String msg = ytMusic.isLoadingTracks() || ytMusic.isBusy()
+					? Component.translatable("screen.mp3player.ytmusic.loading_tracks").getString()
+					: Component.translatable("screen.mp3player.ytmusic.no_tracks").getString();
+			graphics.centeredText(this.font, msg, panelX + panelW / 2, cy, 0xFFFDA4AF);
+			if (ytMusic.statusMessage() != null && !ytMusic.statusMessage().isBlank()) {
+				graphics.centeredText(
+						this.font,
+						clipText(ytMusic.statusMessage(), panelW - 30),
+						panelX + panelW / 2,
+						cy + 14,
+						0xFF94A3B8
+				);
+			}
+			return;
+		}
+
+		graphics.enableScissor(innerLeft, innerTop, innerRight, innerBottom);
+		long animTick = System.currentTimeMillis();
+		String activeYtmId = controller.activeYtMusicTrackId();
+
+		for (int i = 0; i < currentYtMusicTracks.size(); i++) {
+			int rowTop = (int) Math.round(innerTop + i * ROW_HEIGHT - ytMusicScrollOffset);
+			int rowBottom = rowTop + ROW_HEIGHT;
+			if (rowBottom < innerTop || rowTop > innerBottom) {
+				continue;
+			}
+
+			YtMusicTrack track = currentYtMusicTracks.get(i);
+			boolean isCurrent = activeYtmId != null && activeYtmId.equals(track.id()) && controller.hasActiveTrack();
+			boolean isDownloading = ytMusic.isTrackDownloading(track.id())
+					|| (activeYtmId != null && activeYtmId.equals(track.id()) && controller.resolvingSpotifyTitle() != null);
+			boolean isCached = ytMusic.isTrackCached(track.id());
+			boolean isHovered = inListBounds && mouseY >= rowTop && mouseY < rowBottom;
+
+			if (isCurrent) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x44E11D48);
+				graphics.fill(innerLeft, rowTop, innerLeft + 3, rowBottom - 1, 0xFFFF0033);
+			} else if (isHovered) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x2A475569);
+			} else if ((i & 1) == 1) {
+				graphics.fill(innerLeft, rowTop, innerRight - 5, rowBottom - 1, 0x121E293B);
+			}
+
+			int iconX = innerLeft + 7;
+			if (isDownloading) {
+				graphics.text(this.font, "⏳", iconX + 2, rowTop + 7, 0xFFFBBF24, false);
+			} else if (isCurrent) {
+				if (controller.isPlaying()) {
+					float level = Math.max(0.18f, controller.visualizerLevel());
+					for (int b = 0; b < 4; b++) {
+						double wave = 0.55 + 0.45 * Math.sin((animTick / 95.0) + b * 1.45);
+						int barH = Math.max(2, Math.min(12, (int) Math.round(12 * level * wave)));
+						int bx = iconX + b * 3;
+						int by = rowTop + 16 - barH;
+						graphics.fill(bx, by, bx + 2, rowTop + 16, 0xFFFF0033);
+					}
+				} else {
+					graphics.text(this.font, "⏸", iconX + 2, rowTop + 7, 0xFFFF4E6A, false);
+				}
+			} else {
+				String num = String.format(Locale.ROOT, "%02d", i + 1);
+				graphics.text(this.font, num, iconX, rowTop + 7, 0xFF475569, false);
+			}
+
+			// Right-side [+] Speaker Queue button + Duration + optional compact cached check
+			int qBtnW = 16;
+			int qBtnX = innerRight - 8 - qBtnW;
+			int qBtnY = rowTop + 6;
+			int qBtnH = 12;
+			boolean hoverQueueBtn = isHovered && mouseX >= qBtnX && mouseX <= qBtnX + qBtnW;
+			graphics.fill(qBtnX, qBtnY, qBtnX + qBtnW, qBtnY + qBtnH, hoverQueueBtn ? 0xAA8B5CF6 : 0x331E293B);
+			graphics.outline(qBtnX, qBtnY, qBtnW, qBtnH, hoverQueueBtn ? 0xFFA78BFA : 0xFF475569);
+			graphics.centeredText(this.font, "+", qBtnX + qBtnW / 2, qBtnY + 2, hoverQueueBtn ? 0xFFF8FAFC : 0xFFC4B5FD);
+
+			String dur = track.formattedDuration();
+			int durW = this.font.width(dur);
+			int durX = qBtnX - 6 - durW;
+			graphics.text(this.font, dur, durX, rowTop + 8, isCurrent ? 0xFFFECDD3 : 0xFF94A3B8, false);
+
+			int rightTextLimitX = durX - 6;
+			if (isCached) {
+				String badge = "✔";
+				int badgeW = this.font.width(badge) + 4;
+				int badgeX = durX - 4 - badgeW;
+				graphics.text(this.font, badge, badgeX + 2, rowTop + 8, 0xFFFF4E6A, false);
+				rightTextLimitX = badgeX - 4;
+			}
+
+			int textX = innerLeft + 26;
+			int availTextW = Math.max(40, rightTextLimitX - textX);
+			boolean hasArtist = track.artist() != null && !track.artist().isBlank();
+			if (hasArtist) {
+				graphics.text(
+						this.font,
+						clipText(track.title(), availTextW),
+						textX,
+						rowTop + 3,
+						isCurrent ? 0xFFFFFFFF : 0xFFF1F5F9,
+						isCurrent
+				);
+				graphics.text(
+						this.font,
+						clipText(track.artist(), availTextW),
+						textX,
+						rowTop + 13,
+						isCurrent ? 0xFFFDA4AF : 0xFF64748B,
+						false
+				);
+			} else {
+				graphics.text(
+						this.font,
+						clipText(track.title(), availTextW),
+						textX,
+						rowTop + 8,
+						isCurrent ? 0xFFFFFFFF : 0xFFF1F5F9,
+						isCurrent
+				);
+			}
+		}
+
+		graphics.disableScissor();
+
+		int contentHeight = currentYtMusicTracks.size() * ROW_HEIGHT;
+		if (contentHeight > viewHeight) {
+			int sbX1 = innerRight - 4;
+			int sbX2 = innerRight - 1;
+			graphics.fill(sbX1, innerTop + 1, sbX2, innerBottom - 1, 0x441E293B);
+			int thumbH = Math.max(18, (int) ((viewHeight * (double) viewHeight) / contentHeight));
+			double maxScroll = contentHeight - viewHeight;
+			int thumbY = innerTop + 1 + (int) Math.round((ytMusicScrollOffset / maxScroll) * (viewHeight - 2 - thumbH));
+			graphics.fill(sbX1, thumbY, sbX2, thumbY + thumbH, draggingScrollbar ? 0xFFFF0033 : 0xAA64748B);
 		}
 	}
 
@@ -1978,11 +2525,13 @@ public class Mp3PlayerScreen extends Screen {
 			String label = clipText(remotePrefix + activeQueueEntry.ownerName() + " – " + activeQueueEntry.trackTitle(), maxNowPlayingW);
 			graphics.text(this.font, label, panelX + 8, deckTop + 5, 0xFF34D399, true);
 		} else if (controller.resolvingSpotifyTitle() != null) {
+			boolean ytm = controller.isResolvingFromYtMusic();
+			String key = ytm ? "screen.mp3player.ytmusic.resolving" : "screen.mp3player.spotify.resolving";
 			String loadingLabel = clipText(
-					Component.translatable("screen.mp3player.spotify.resolving", controller.resolvingSpotifyTitle()).getString(),
+					Component.translatable(key, controller.resolvingSpotifyTitle()).getString(),
 					maxNowPlayingW
 			);
-			graphics.text(this.font, loadingLabel, panelX + 8, deckTop + 5, 0xFF34D399, true);
+			graphics.text(this.font, loadingLabel, panelX + 8, deckTop + 5, ytm ? 0xFFFF4E6A : 0xFF34D399, true);
 		} else if (current != null) {
 			String prefix = controller.isPlaying() ? "♪ " : "⏸ ";
 			String ownerSuffix = (activeQueueEntry != null && controller.isSpeakerSystemMode())
@@ -2058,6 +2607,9 @@ public class Mp3PlayerScreen extends Screen {
 			case SPOTIFY -> !controller.spotify().isAccountLinked()
 					? 0
 					: (selectedSpotifyPlaylist != null ? currentSpotifyTracks.size() : currentSpotifyPlaylists.size());
+			case YTMUSIC -> !controller.ytMusic().isAccountLinked()
+					? 0
+					: (selectedYtMusicPlaylist != null ? currentYtMusicTracks.size() : currentYtMusicPlaylists.size());
 			case TRACKS -> filteredTracks.size();
 		};
 		int contentHeight = itemCount * ROW_HEIGHT;
@@ -2190,6 +2742,77 @@ public class Mp3PlayerScreen extends Screen {
 					refreshButtonLabels();
 					return true;
 				}
+			} else if (viewTab == ViewTab.YTMUSIC) {
+				if (!controller.ytMusic().isAccountLinked()) {
+					return false;
+				}
+				int idx = (int) Math.floor((my - innerTop + ytMusicScrollOffset) / ROW_HEIGHT);
+				if (selectedYtMusicPlaylist == null) {
+					if (idx >= 0 && idx < currentYtMusicPlaylists.size()) {
+						YtMusicPlaylist clickedPl = currentYtMusicPlaylists.get(idx);
+						int rmW = 16;
+						int rmX = innerRight - 8 - rmW;
+						if (mx >= rmX && mx <= rmX + rmW) {
+							controller.ytMusic().removePlaylist(clickedPl.id());
+							updateYtMusicList();
+							refreshButtonLabels();
+							return true;
+						}
+						this.selectedYtMusicPlaylist = clickedPl;
+						this.ytMusicScrollOffset = 0.0;
+						this.ytMusicInputText = "";
+						if (this.spotifyInputBox != null) {
+							this.spotifyInputBox.setValue("");
+						}
+						if (controller.ytMusic().tracksForPlaylist(clickedPl).isEmpty()) {
+							controller.ytMusic().loadPlaylistTracks(clickedPl);
+						}
+						updateYtMusicList();
+						syncTabVisibility();
+						refreshButtonLabels();
+						return true;
+					}
+				} else if (idx >= 0 && idx < currentYtMusicTracks.size()) {
+					YtMusicTrack clickedTrack = currentYtMusicTracks.get(idx);
+					int qBtnW = 16;
+					int qBtnX = innerRight - 8 - qBtnW;
+					if (mx >= qBtnX && mx <= qBtnX + qBtnW) {
+						boolean queued = controller.enqueueYtMusicTrackOnSpeakers(
+								clickedTrack,
+								selectedYtMusicPlaylist,
+								false
+						);
+						updateQueueList();
+						refreshButtonLabels();
+						String toastKey = queued
+								? "screen.mp3player.queue.added_toast"
+								: "screen.mp3player.queue.playing_toast";
+						this.toastMessage = Component.translatable(toastKey, clickedTrack.title()).getString();
+						this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+						return true;
+					}
+
+					if (isBoomboxScreen() && !controller.isTargetingBoombox(targetBoomboxDimension, targetBoomboxPos)) {
+						controller.activateBoomboxTarget(targetBoomboxDimension, targetBoomboxPos);
+					} else if ((speakerControllerScreen || controller.isSpeakerSystemMode()) && !controller.isBoomboxActive()) {
+						boolean queued = controller.enqueueYtMusicTrackOnSpeakers(
+								clickedTrack,
+								selectedYtMusicPlaylist,
+								true
+						);
+						if (queued) {
+							this.toastMessage = Component.translatable("screen.mp3player.queue.added_toast", clickedTrack.title()).getString();
+							this.toastExpireTimeMs = System.currentTimeMillis() + 3000L;
+						}
+						updateQueueList();
+						refreshButtonLabels();
+						return true;
+					}
+					controller.playYtMusicTrack(clickedTrack, selectedYtMusicPlaylist);
+					updateQueueList();
+					refreshButtonLabels();
+					return true;
+				}
 			} else {
 				int idx = (int) Math.floor((my - innerTop + scrollOffset) / ROW_HEIGHT);
 				if (idx >= 0 && idx < filteredTracks.size()) {
@@ -2268,6 +2891,9 @@ public class Mp3PlayerScreen extends Screen {
 			} else if (viewTab == ViewTab.SPOTIFY) {
 				this.spotifyScrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
 				clampSpotifyScroll();
+			} else if (viewTab == ViewTab.YTMUSIC) {
+				this.ytMusicScrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
+				clampYtMusicScroll();
 			} else {
 				this.scrollOffset -= scrollY * (ROW_HEIGHT * 1.25);
 				clampScroll();
@@ -2292,7 +2918,7 @@ public class Mp3PlayerScreen extends Screen {
 				return true;
 			}
 			if (event.key() == GLFW.GLFW_KEY_ENTER || event.key() == GLFW.GLFW_KEY_KP_ENTER) {
-				handleSpotifyPrimaryAction();
+				handleStreamingPrimaryAction();
 				return true;
 			}
 			return super.keyPressed(event);
@@ -2372,6 +2998,12 @@ public class Mp3PlayerScreen extends Screen {
 			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
 			this.spotifyScrollOffset = ratio * maxScroll;
 			clampSpotifyScroll();
+		} else if (viewTab == ViewTab.YTMUSIC) {
+			int count = selectedYtMusicPlaylist != null ? currentYtMusicTracks.size() : currentYtMusicPlaylists.size();
+			int contentHeight = count * ROW_HEIGHT;
+			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
+			this.ytMusicScrollOffset = ratio * maxScroll;
+			clampYtMusicScroll();
 		} else {
 			int contentHeight = filteredTracks.size() * ROW_HEIGHT;
 			double maxScroll = Math.max(0.0, contentHeight - viewHeight);
@@ -2407,6 +3039,14 @@ public class Mp3PlayerScreen extends Screen {
 		int contentHeight = count * ROW_HEIGHT;
 		double maxScroll = Math.max(0.0, contentHeight - viewHeight);
 		this.spotifyScrollOffset = Math.max(0.0, Math.min(maxScroll, this.spotifyScrollOffset));
+	}
+
+	private void clampYtMusicScroll() {
+		int viewHeight = Math.max(1, (listBottom - 1) - (listTop + 1));
+		int count = selectedYtMusicPlaylist != null ? currentYtMusicTracks.size() : currentYtMusicPlaylists.size();
+		int contentHeight = count * ROW_HEIGHT;
+		double maxScroll = Math.max(0.0, contentHeight - viewHeight);
+		this.ytMusicScrollOffset = Math.max(0.0, Math.min(maxScroll, this.ytMusicScrollOffset));
 	}
 
 	private static int formatBadgeColor(String badge, boolean active) {
